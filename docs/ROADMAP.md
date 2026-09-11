@@ -13,6 +13,8 @@ before committing to a router design.
 - [ ] Capture Cursor's result envelope on a real usage limit
 - [ ] Run the handoff-quality experiment (Spike 3) — decide continue-vs-restart
 - [ ] Record both `stream-json` event vocabularies
+- [ ] Install Solo; verify it really lacks quota failover, cost tracking and worktrees
+      ([ARCHITECTURE.md §9](./ARCHITECTURE.md#9-prior-art-solo-and-where-truss-differs))
 
 **Exit criterion:** limit detection can be written against captured fixtures, not guesses.
 
@@ -58,3 +60,5 @@ Not commitments — ideas worth revisiting once M1–M3 are real.
 - Quota forecasting: predict exhaustion from observed burn rate, route pre-emptively
 - Consensus mode: same task to N backends, diff the answers, surface disagreement
 - Shared context cache to cut the N-times context cost
+- Expose Truss over MCP so a lead agent can open lanes itself
+- Run cleanly as a supervised command inside Solo

@@ -16,6 +16,9 @@ Neither tool knows the other exists. Neither emits a "I am out of quota, take ov
 **Truss is a meta-harness: a thin layer above the agent CLIs that owns routing, isolation,
 and accounting, while the agents keep owning the actual coding.**
 
+Truss is not the first tool in this space — see [§9](#9-prior-art-solo-and-where-truss-differs)
+for what Solo already solves, what it doesn't, and why that leaves a wedge.
+
 Two capabilities, in dependency order:
 
 1. **Failover** — run a task; if the primary backend is rate-limited, continue on the next one.
@@ -108,8 +111,8 @@ four, and run the tests twice. At that moment:
 Claude session. **There is no conversation handoff, and there never will be.** Any design
 that assumes one is fiction.
 
-So a handoff has to be reconstructed from the only two things that cross the boundary: the
-git working tree, and a text summary.
+So a handoff has to be reconstructed from the only things that cross the boundary: the git
+working tree, and durable text written outside any chat transcript.
 
 ### Proposed mechanism: checkpoint-and-brief
 
@@ -123,6 +126,13 @@ When the router decides to fail over:
    do not redo completed work.
 4. **Record.** Log the handoff in the run manifest so the final report shows which backend
    did which part.
+
+A stronger variant, borrowed from Solo's scratchpads (§9): give every run a **durable
+scratchpad file** in the lane, and instruct each backend to keep it current as it works —
+plan, decisions made, what's left. Then a handoff inherits reasoning the agent chose to
+externalise, not just a diff reconstructed after the fact. It degrades well: if the agent
+neglects the scratchpad, the handoff is no worse than checkpoint-and-brief. This costs one
+line of prompt and is probably the single highest-leverage idea available for §3.
 
 This is imperfect. The second agent loses the first one's reasoning and may re-tread ground.
 It is, however, the only honest option, and it degrades gracefully: worst case the second
@@ -189,7 +199,9 @@ with a result. Sketch:
 
 ```ts
 interface Backend {
-  readonly id: string;                  // "claude" | "cursor"
+  readonly id: string;                  // preset id: "claude-opus", "claude-sonnet", "cursor-gpt5"
+  readonly binary: string;              // "claude" | "cursor-agent"
+  readonly defaultArgs: string[];       // model, autonomy, endpoint…
   available(): Promise<Availability>;   // installed? authed? quota known?
   capabilities: Capabilities;           // reportsCost, supportsBudgetCap, supportsResume…
   run(task: Task, opts: RunOpts): AgentRun;   // spawn; returns handle
@@ -214,6 +226,12 @@ interface NormalizedResult {
 
 `capabilities` is what keeps the asymmetries honest: the reporter asks
 `backend.capabilities.reportsCost` rather than assuming a number exists.
+
+**A backend is a launch preset, not a vendor** — a `(binary, defaultArgs)` pair, borrowed
+from Solo's reusable presets (§9). This matters for the failover chain: the same CLI can be
+registered several times under different models, so a chain can step *down* to a cheaper
+model on the same account before crossing to another vendor entirely. Quota exhaustion isn't
+binary, and the cheapest useful fallback is often still the incumbent.
 
 Adding a third backend (Codex, Aider, Gemini) should mean one file in `backends/` and one
 detector fixture — nothing else.
@@ -270,3 +288,51 @@ To be stated in the README rather than discovered by users:
 - **Interactive sessions can't fail over.** Truss operates on headless invocations. A live
   interactive session that hits a limit is outside its reach; nothing hooks that moment.
 - **Handoff is lossy.** Per §3 — filesystem plus summary, never reasoning.
+
+## 9. Prior art: Solo, and where Truss differs
+
+[Solo](https://soloterm.com/) describes itself, near-verbatim, as "the meta-harness for
+coding agents." It is worth being precise about the overlap, because if it already covered
+this there would be no reason to build Truss.
+
+**What Solo is:** a Tauri desktop app — a workspace and control plane around your agents and
+your dev stack. It launches the real CLI binaries you already have installed rather than
+reimplementing them (preserving each tool's auth and config), groups them into workspaces,
+shares long-running dev processes via a `solo.yml` manifest so humans and agents don't spawn
+duplicate servers, and exposes terminal control to agents over MCP, HTTP and its own CLI.
+Agents get scratchpads, todos, comments, blockers, locks and timers as a coordination
+substrate, plus idle detection so one agent can wait on another.
+
+**The overlap is real and worth learning from:**
+
+- *Launch the real binaries, don't reimplement them.* Solo's core bet is the same as Truss's
+  subprocess-adapter approach. Independent confirmation that this is the right boundary.
+- *Reusable launch presets* — the same agent CLI registered more than once under different
+  names and default args. Truss adopts this directly (§5): it's what makes same-vendor,
+  cheaper-model fallback expressible in a routing chain.
+- *Scratchpads as durable coordination outside a chat transcript.* Solo built this for
+  agent-to-agent handoff within a session. It happens to be a much better answer to Truss's
+  §3 cross-vendor handoff problem than a git diff alone, and is folded into the design there.
+- *Locks.* Truss isolates lanes with worktrees, which is stronger for files — but worktrees
+  do nothing for shared ports, databases or dev servers. Solo's locks cover a gap Truss's
+  isolation model genuinely has.
+
+**What Solo does not appear to do — the wedge:**
+
+- **No quota failover.** Solo's documented rate limiting is process-supervision backoff, so a
+  crashed dev server doesn't restart in an infinite loop. It is unrelated to API usage limits.
+  Nothing in its docs routes work to a second vendor when the first account is exhausted —
+  which is the entire problem Truss exists for.
+- **No cost or token accounting.** Not mentioned in its docs.
+- **No git worktree isolation.** Coordination is via locks and conventions, not separate trees.
+
+**Positioning.** Solo is a GUI workspace that makes concurrent agents observable and
+coordinated; Truss is a headless CLI that makes capacity fungible. They are complementary,
+not competing — the natural end state is `truss run` being one of the commands Solo
+supervises. That also means Truss should stay a well-behaved CLI with clean exit codes and
+stream-json output, rather than growing a UI of its own.
+
+**Honest caveat:** this assessment is from Solo's public docs and marketing pages, not from
+using it. Before building M1 it is worth actually installing Solo and confirming the three
+gaps above — if it has quietly shipped quota failover, the wedge closes and Truss should
+become a plugin rather than a tool.
