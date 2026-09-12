@@ -11,7 +11,8 @@ before committing to a router design.
 - [ ] Confirm a headless `cursor-agent -p --output-format json` round-trip
 - [ ] Capture Claude's result envelope on a real usage limit
 - [ ] Capture Cursor's result envelope on a real usage limit
-- [ ] Run the handoff-quality experiment (Spike 3) — decide continue-vs-restart
+- [x] Run the handoff-quality experiment (Spike 3) — **decided: continue, no validity gate**
+      ([report](./spikes/003-handoff-quality.md))
 - [ ] Record both `stream-json` event vocabularies
 - [ ] Install Solo; verify it really lacks quota failover, cost tracking and worktrees
       ([ARCHITECTURE.md §9](./ARCHITECTURE.md#9-prior-art-solo-and-where-truss-differs))
@@ -28,7 +29,7 @@ The smallest thing that solves the original problem.
 - [ ] Cursor adapter — same
 - [ ] Detector module + fixture corpus from M0
 - [ ] Router: ordered chain, transient retry with backoff, limit → failover
-- [ ] Checkpoint-and-brief handoff
+- [ ] Checkpoint-and-brief handoff (per tool call — see Spike 3)
 - [ ] Run manifest + terminal report with per-backend attribution and labelled cost
 
 **Exit criterion:** a task that exhausts Claude's quota finishes on Cursor, and the report

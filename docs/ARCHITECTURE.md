@@ -118,8 +118,9 @@ working tree, and durable text written outside any chat transcript.
 
 When the router decides to fail over:
 
-1. **Checkpoint.** Commit the working tree to a scratch ref (`refs/truss/<run-id>/<seq>`).
-   Nothing is lost and nothing pollutes the user's branches.
+1. **Checkpoint.** Commit the working tree to a scratch ref (`refs/truss/<run-id>/<seq>`)
+   after each tool call, not only at failover. Nothing is lost, nothing pollutes the user's
+   branches, and the successor gets a ladder of known-good states to recover from.
 2. **Harvest.** Take the partial `result` text plus a `git diff --stat` of the checkpoint.
 3. **Brief.** Invoke the next backend with the original task *plus* a preamble: here is the
    task, here is what a previous agent already changed, here is where it stopped. Continue;
@@ -138,10 +139,22 @@ This is imperfect. The second agent loses the first one's reasoning and may re-t
 It is, however, the only honest option, and it degrades gracefully: worst case the second
 agent re-derives context it could have inherited.
 
-**Open question for review:** should a failover mid-task instead *abort and roll back* to the
-last clean state, then restart from scratch on the new backend? Cheaper to reason about,
-safer for non-idempotent work, wasteful of everything already done. This is a real fork and I
-would rather you picked it than have me assume. See Spike 3.
+**Resolved — continue, not restart.** [Spike 3](spikes/003-handoff-quality.md) ran both
+against a 60-test multi-module task interrupted mid-flight. Both strategies reached 60/60;
+they separated on work done, not success. Continuing wrote 24–40% less code for the same
+result, and in every clean-inheritance run the successor verified the inherited module and
+left it byte-identical rather than rewriting it — the thrash failure mode this design feared
+did not occur. Wall clock was a wash; the saving is quota, not latency.
+
+**No validity gate before handoff.** The obvious hedge was to checkpoint only when the tree
+still parses and otherwise roll back. Spike 3 tested that case directly, handing a successor
+a file truncated mid-write, and it diagnosed the damage unprompted, repaired it, and
+finished. A gate would add a failure mode without buying anything.
+
+**Checkpoint per tool call, not once at failover.** Found by accident while running the
+spike: a successor that has earlier checkpoint commits available will actively mine them to
+recover a clobbered file. Cheap to provide, and it turns the scratch-ref history into a
+recovery ladder rather than a single snapshot.
 
 ## 4. Rate-limit detection
 
@@ -157,6 +170,12 @@ should cause a failover:
 
 Conflating the second and third is the main way a tool like this wastes a second account's
 quota on a task that was never going to succeed.
+
+Detection reads the backend's **event stream**, never the project's own test suite.
+[Spike 3](spikes/003-handoff-quality.md) found a task that sat at 0/60 passing for 42 seconds
+and then jumped to 59/60: until the final module wires things together, a half-built tree and
+an untouched tree are indistinguishable by tests. Any progress or checkpoint trigger built on
+them fires only once the work is already done.
 
 Detection is layered, most reliable first:
 
