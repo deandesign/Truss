@@ -47,7 +47,12 @@ export function buildBrief(input: BriefInput): string {
   // for memory.md there just drops a stray file in whatever repo you ran in.
   if (input.identity) {
     parts.push(
-      "Keep `memory.md` current as you work: plan, decisions made, what's left.",
+      [
+        "Keep `.truss/memory.md` current as you work: plan, decisions made,",
+        "what's left. Truss reads that file back into your durable memory when",
+        "the run ends, and it is the only thing that survives to your next turn",
+        "or to another backend picking this up.",
+      ].join(" "),
     );
   }
   return parts.filter(Boolean).join("\n");

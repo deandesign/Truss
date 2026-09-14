@@ -65,7 +65,7 @@ still have to be classified from error text alone.
 ## M2 — Named agents (`truss talk`)
 
 - [x] Bot identity (name, title, role) on disk under `~/.truss/bots/`
-- [x] Durable per-bot memory (scratchpad)
+- [x] Durable per-bot memory (scratchpad), written back after each run
 - [x] Truss-owned transcript
 - [x] `truss talk [bot]` — each turn becomes a routed run with role + memory + transcript
 

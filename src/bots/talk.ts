@@ -14,6 +14,7 @@ import {
 import { loadConfig } from "../core/config.js";
 import { formatReport } from "../core/report.js";
 import { route, type RouterEvent } from "../core/router.js";
+import { harvestMemory } from "./harvest.js";
 import { loadSkill, skillFromMessage } from "../skills/store.js";
 import { createLiveView } from "../ui/live.js";
 
@@ -63,6 +64,9 @@ export async function talkOnce(opts: TalkOpts): Promise<string> {
     extraArgs: opts.extraArgs,
     onProgress: opts.onProgress,
   });
+  // Carry the run's scratchpad into the bot's store before the turn closes.
+  harvestMemory(opts.cwd, bot.id);
+
   const last = manifest.steps.at(-1);
   appendTurn(conv, {
     role: "assistant",

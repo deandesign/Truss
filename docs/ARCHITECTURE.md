@@ -130,6 +130,22 @@ Memory is the Solo scratchpad idea, per-bot and always on disk. A handoff
 inherits reasoning the agent chose to externalise. If the agent neglects the
 scratchpad, the handoff is no worse than checkpoint-and-brief.
 
+**How it gets there.** A bot's memory lives at `~/.truss/bots/<id>/memory.md`,
+outside the repo and so out of reach of a sandboxed backend. Rather than grant
+every run write access to the Truss home, the brief asks the agent to keep
+`.truss/memory.md` inside the working directory, and `talkOnce` moves that file
+into the bot's store when the run ends, clearing the drop. Inside `.truss/`
+specifically, so it cannot collide with a `memory.md` the repo keeps for itself,
+and because checkpoints already exclude that directory — the scratchpad never
+shows up in a handoff diffstat.
+
+Only bot runs are asked for it. `truss run` has no bot and nowhere durable to
+put one, so asking it would just litter the repo.
+
+An empty scratchpad is not read as "forget everything": it clears the drop and
+leaves the stored memory alone. The drop is always cleared, so one bot's notes
+cannot be read back into another on the next run in the same repo.
+
 Skills are markdown instruction packs. No screen-recording "teach a task" in
 v1. The same skill text is what every backend sees.
 
