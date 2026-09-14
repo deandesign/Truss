@@ -1,62 +1,73 @@
 # Truss — Architecture
 
-> Status: **design draft**. Nothing here is implemented yet. This document exists to be
-> argued with before any code is written.
+> Status: **local teammate, v1**. The bot is the product. Vendor CLIs are the
+> inner loop. This document is the contract the code is written against.
 
 ## 1. The problem
 
-Coding agents are sold as sessions, but they are consumed as *capacity*. You have a Claude
-subscription and a Cursor subscription. When one hits a usage limit, the work stops — even
-though the other account is sitting idle with quota to burn. And when a task is obviously
-parallel, there is no way to put two vendors' agents on it at once without them overwriting
-each other's files.
+Grok Bot is a named teammate with memory, skills, routines, and a computer —
+but the model is a fixed xAI/Cursor pool with automatic failover you cannot
+control. You already pay for Claude, Cursor, Codex. When one hits a usage
+limit, the work stops, even though another account is sitting idle.
 
-Neither tool knows the other exists. Neither emits a "I am out of quota, take over" signal.
+Neither CLI knows the others exist. None emit a "I am out of quota, take over"
+signal. ChatGPT Plus and Claude.ai chat cannot drive a computer; only coding
+CLIs can.
 
-**Truss is a meta-harness: a thin layer above the agent CLIs that owns routing, isolation,
-and accounting, while the agents keep owning the actual coding.**
+**Truss is a local Grok Bot whose brains are the coding-agent subscriptions
+you already pay for.** It owns identity, memory, routing, isolation, and
+accounting. The agents keep owning the actual coding.
 
-Truss is not the first tool in this space — see [§9](#9-prior-art-solo-and-where-truss-differs)
-for what Solo already solves, what it doesn't, and why that leaves a wedge.
+```
+You
+  → message
+Bot (role, memory, skills, conversation)
+  → brief
+Router (ordered chain of coding CLIs)
+  → spawn
+claude | cursor-agent | codex
+  → this Mac (files, git, terminal)
+```
+
+Vendor sessions never cross. Truss owns the conversation and briefs the next
+CLI with checkpoint + scratchpad.
 
 Two capabilities, in dependency order:
 
 1. **Failover** — run a task; if the primary backend is rate-limited, continue on the next one.
 2. **Fan-out** — run N agents in parallel, each in an isolated git worktree, then collect diffs.
 
-Both need the same foundation: a uniform way to invoke a backend, read its result, and know
-whether it succeeded, failed, or ran out of road.
+Fan-out is M6. v1 ships the teammate and the inner loop.
+
+See [§10](#10-prior-art) for Solo, Grok Bot, and where Truss differs.
 
 ## 2. Why this is tractable: the envelopes already match
 
-The core bet of this design is that both backends are already close enough to normalize
-cheaply. Verified against the `claude` 2.1.268 and `cursor-agent` 2026.09.10-fd3934a
-binaries on 2026-09-11 — not the published docs, which understate Cursor's surface:
+Verified against `claude` 2.1.270 and `cursor-agent` 2026.09.10-fd3934a on
+2026-09-14 — not only the published docs:
 
-| | Claude Code | cursor-agent |
-|---|---|---|
-| Headless flag | `-p` / `--print` | `-p` / `--print` |
-| Output formats | `text`, `json`, `stream-json` | `text`, `json`, `stream-json` |
-| Model select | `--model` | `--model` (`--list-models`) |
-| Resume | `-r, --resume <session-id>`, `--session-id <uuid>` | `--resume [chatId]`, `--continue` |
-| Autonomy | `--permission-mode`, `--allowedTools`, `--disallowed-tools` | `-f/--force`, `--auto-review`, `--sandbox`, `--approve-mcps`, `--trust` |
-| Plan mode | `--permission-mode plan` | `--mode plan` / `--plan` |
-| Worktrees | `-w, --worktree [name]` | `-w, --worktree [name]`, `--worktree-base <ref>` |
-| Detached runs | `--bg`, `agents`, `attach`, `logs`, `stop` | `persist` |
-| Extra roots | `--add-dir` | `--add-dir`, `--workspace` |
-| Auth | OAuth / `ANTHROPIC_API_KEY` | `--api-key` / `CURSOR_API_KEY` |
+| | Claude Code | cursor-agent | Codex CLI |
+|---|---|---|---|
+| Headless | `-p` / `--print` | `-p` / `--print` | `codex exec` |
+| Machine output | `json`, `stream-json` (`--verbose` required) | `json`, `stream-json` | `--json` (JSONL) |
+| Model select | `--model` | `--model` (`--list-models`) | `-c` / config |
+| Resume | `-r, --resume <session-id>` | `--resume [chatId]`, `--continue` | `codex exec resume` |
+| Autonomy | `--permission-mode` | `-f/--force`, `--auto-review`, `--trust` | `--sandbox`, `--ask-for-approval` |
+| Plan mode | `--permission-mode plan` | `--mode plan` / `--plan` | `/plan` |
+| Worktrees | `-w, --worktree [name]` | `-w, --worktree [name]` | (none native) |
+| Auth | OAuth / `ANTHROPIC_API_KEY` | `--api-key` / `CURSOR_API_KEY` | ChatGPT / API |
 
-And the terminal result object is nearly the same shape. Claude Code, observed:
+Claude Code, observed 2026-09-14:
 
 ```json
 { "type": "result", "subtype": "success", "is_error": false,
-  "result": "ok", "session_id": "0a064228-…", "num_turns": 1,
-  "duration_ms": 1779, "duration_api_ms": 2993,
-  "total_cost_usd": 0.0439842, "usage": { … }, "modelUsage": { … },
+  "result": "pong", "session_id": "9b79014e-…", "num_turns": 1,
+  "duration_ms": 1512, "duration_api_ms": 2513,
+  "total_cost_usd": 0.098593, "usage": { … }, "modelUsage": { … },
   "api_error_status": null, "terminal_reason": "completed", "stop_reason": "end_turn" }
 ```
 
-cursor-agent, per docs:
+cursor-agent, per docs (success shape; error shape still undocumented):
 
 ```json
 { "type": "result", "subtype": "success", "is_error": false,
@@ -64,294 +75,224 @@ cursor-agent, per docs:
   "duration_ms": 1234, "duration_api_ms": 1234, "request_id": "<optional>" }
 ```
 
-`type`, `subtype`, `is_error`, `result`, `session_id`, `duration_ms`, `duration_api_ms` are
-common to both. That shared core *is* the normalized result type. Everything else is an
-optional capability.
+Codex `exec --json` is a JSONL stream (`thread.started`, `turn.completed`,
+`item.*`, `error`), not a Claude-shaped result object. The adapter normalizes
+it. See [Spike 4](spikes/004-stream-json.md).
+
+`type`, `subtype`, `is_error`, `result`, `session_id`, `duration_ms` are the
+shared core for Claude and Cursor. Everything else is an optional capability.
 
 ### The asymmetries that shape the design
 
-These are not incidental — each one forces a decision:
+- **Cursor reports no cost or token usage.** Claude gives `total_cost_usd`.
+  Codex reports token usage on `turn.completed`, not dollars. Totals are
+  *known* vs *unknown*, never a silent sum that omits half the work.
+- **Claude has `--max-budget-usd`; Cursor and Codex do not.** Caps that cannot
+  be enforced natively fall back to wall-clock and turn count.
+- **Vendor worktrees are private.** Truss owns the worktree lifecycle and
+  invokes every backend with a plain `cwd`. Vendor `-w` flags go unused.
+- **Autonomy is a three-tier map, and the middle tier is lossy.** Claude's
+  middle is local rules (`acceptEdits`); Cursor's is a remote classifier
+  (`--auto-review`); Codex's is `--ask-for-approval on-request`. Adapters
+  translate; docs say the translation is lossy.
+- **Headless Cursor requires `--trust`** (or `--yolo` / `-f`). Without it the
+  process prints a workspace-trust prompt and exits 1. The Cursor adapter
+  always passes `--trust` for unattended runs.
+- **Claude `stream-json` requires `--verbose`.** The Claude adapter always
+  passes both.
+- **Do not use detached runs** (`claude --bg`, `cursor-agent persist`). A run
+  Truss cannot see the exit of is a run it cannot fail over.
+- **Claude `--fallback-model` is model failover inside one vendor.** It does
+  nothing for account quota. Don't confuse the two.
 
-- **Cursor reports no cost or token usage.** Claude gives `total_cost_usd`, `usage`, and
-  per-model breakdown. So budget accounting is necessarily partial. Truss must present
-  spend as *known* vs *unknown*, never silently report a total that omits half the work.
-- **Claude has `--max-budget-usd`; Cursor has no equivalent.** Per-backend budget caps
-  can't be enforced uniformly. Truss enforces what it can natively and otherwise caps by
-  wall-clock and turn count.
-- **Both have worktrees, in vendor-private locations.** Claude and Cursor each take
-  `-w/--worktree`, but Cursor materializes lanes under `~/.cursor/worktrees/<repo>/<name>`
-  and Claude uses its own convention, each with its own naming and cleanup. Delegating
-  isolation would scatter a single run's lanes across two vendor directories under two
-  naming schemes — making `truss lanes`, `diff`, `merge` and `reap` unable to present one
-  coherent model. So **Truss owns the worktree lifecycle itself** and invokes every backend
-  with a plain `cwd` in a lane it created. Both `-w` flags go unused on purpose.
-- **Autonomy is a three-tier map, not a binary one.** Claude has graduated permission modes
-  plus tool-level allow/deny; Cursor has prompt-by-default, `--auto-review` (a server-side
-  classifier that auto-runs safe calls), and `--force`. Those line up well enough for a
-  three-level Truss `autonomy` setting, but the middle tier is not equivalent on both sides
-  — Claude's is a local rules decision, Cursor's is a remote classifier. The adapters
-  translate and the docs say the translation is lossy rather than pretending it isn't.
-- **Both can run detached**, via Claude's background sessions and Cursor's `persist`. Truss
-  should not use either: a run it cannot see the exit of is a run it cannot fail over.
-- **Claude already has `--fallback-model`** for when a model is overloaded. That solves
-  *model* failover inside one vendor. It does nothing for *account quota* exhaustion, which
-  is the case Truss exists for. Don't confuse the two.
+## 3. Outer loop: bots, memory, skills, routines
 
-## 3. The hard part: failover is not resumable across vendors
+Grok Bot's product shape, stored on disk, not in a vendor chat.
 
-This is the central design problem and everything else is easy by comparison.
+```
+~/.truss/
+  config.json              backends, order, autonomy
+  bots/<id>/identity.md    name, title, role
+  bots/<id>/memory.md      durable scratchpad
+  bots/<id>/conversations/ Truss-owned transcripts
+  skills/                  shared markdown packs
+  routines/                schedule + bot + prompt + skill
+  state/limits.json        last-known quota per backend
 
-A rate limit rarely lands on turn one. It lands after the agent has read nine files, written
-four, and run the tests twice. At that moment:
+.truss/                    repo-scoped: run manifests, checkpoints
+```
 
-- The work-in-progress lives in **the filesystem**, as uncommitted edits.
+`truss talk [bot]` loads identity + memory + recent transcript + optional
+skill, then calls the router. Each turn is a fresh inner-loop invocation.
+Vendor `--resume` is never used across backends.
+
+Memory is the Solo scratchpad idea, per-bot and always on disk. A handoff
+inherits reasoning the agent chose to externalise. If the agent neglects the
+scratchpad, the handoff is no worse than checkpoint-and-brief.
+
+Skills are markdown instruction packs. No screen-recording "teach a task" in
+v1. The same skill text is what every backend sees.
+
+Routines are `launchd` LaunchAgents that call `truss talk`. They only fire
+while this Mac is awake. Grok Bot's "laptop closed" behavior waits on a later
+cloud VM.
+
+Autonomy defaults **low**. A teammate on your Mac is more dangerous than a
+one-shot `truss run`. Truss never quietly upgrades permissions to make a
+failover succeed.
+
+## 4. The hard part: failover is not resumable across vendors
+
+A rate limit rarely lands on turn one. It lands after the agent has read nine
+files, written four, and run the tests twice. At that moment:
+
+- The work-in-progress lives in **the filesystem**.
 - The reasoning lives in **the backend's session store**, which is vendor-private.
 
-`claude --resume <id>` cannot resume a Cursor chat. `cursor-agent --resume` cannot resume a
-Claude session. **There is no conversation handoff, and there never will be.** Any design
-that assumes one is fiction.
+`claude --resume` cannot resume a Cursor chat. **There is no conversation
+handoff, and there never will be.**
 
-So a handoff has to be reconstructed from the only things that cross the boundary: the git
-working tree, and durable text written outside any chat transcript.
+### Mechanism: checkpoint-and-brief
 
-### Proposed mechanism: checkpoint-and-brief
+1. **Checkpoint.** Commit the working tree to `refs/truss/<run-id>/<seq>` after
+   each tool call, not only at failover.
+2. **Harvest.** Partial `result` text plus `git diff --stat`.
+3. **Brief.** Next backend gets the original task, the bot's memory, the
+   transcript, any skill, and "continue; do not redo completed work."
+4. **Record.** The run manifest shows which backend did which part.
 
-When the router decides to fail over:
+**Resolved — continue, not restart.** [Spike 3](spikes/003-handoff-quality.md)
+ran both against a 60-test multi-module task interrupted mid-flight. Both
+reached 60/60. Continuing wrote 24–40% less code. No validity gate: a
+successor handed a truncated file repaired it unprompted.
 
-1. **Checkpoint.** Commit the working tree to a scratch ref (`refs/truss/<run-id>/<seq>`)
-   after each tool call, not only at failover. Nothing is lost, nothing pollutes the user's
-   branches, and the successor gets a ladder of known-good states to recover from.
-2. **Harvest.** Take the partial `result` text plus a `git diff --stat` of the checkpoint.
-3. **Brief.** Invoke the next backend with the original task *plus* a preamble: here is the
-   task, here is what a previous agent already changed, here is where it stopped. Continue;
-   do not redo completed work.
-4. **Record.** Log the handoff in the run manifest so the final report shows which backend
-   did which part.
-
-A stronger variant, borrowed from Solo's scratchpads (§9): give every run a **durable
-scratchpad file** in the lane, and instruct each backend to keep it current as it works —
-plan, decisions made, what's left. Then a handoff inherits reasoning the agent chose to
-externalise, not just a diff reconstructed after the fact. It degrades well: if the agent
-neglects the scratchpad, the handoff is no worse than checkpoint-and-brief. This costs one
-line of prompt and is probably the single highest-leverage idea available for §3.
-
-This is imperfect. The second agent loses the first one's reasoning and may re-tread ground.
-It is, however, the only honest option, and it degrades gracefully: worst case the second
-agent re-derives context it could have inherited.
-
-**Resolved — continue, not restart.** [Spike 3](spikes/003-handoff-quality.md) ran both
-against a 60-test multi-module task interrupted mid-flight. Both strategies reached 60/60;
-they separated on work done, not success. Continuing wrote 24–40% less code for the same
-result, and in every clean-inheritance run the successor verified the inherited module and
-left it byte-identical rather than rewriting it — the thrash failure mode this design feared
-did not occur. Wall clock was a wash; the saving is quota, not latency.
-
-**No validity gate before handoff.** The obvious hedge was to checkpoint only when the tree
-still parses and otherwise roll back. Spike 3 tested that case directly, handing a successor
-a file truncated mid-write, and it diagnosed the damage unprompted, repaired it, and
-finished. A gate would add a failure mode without buying anything.
-
-**Checkpoint per tool call, not once at failover.** Found by accident while running the
-spike: a successor that has earlier checkpoint commits available will actively mine them to
-recover a clobbered file. Cheap to provide, and it turns the scratch-ref history into a
-recovery ladder rather than a single snapshot.
-
-## 4. Rate-limit detection
-
-The trigger for everything above. Truss must distinguish four outcomes — and only the third
-should cause a failover:
+## 5. Rate-limit detection
 
 | Outcome | Response |
 |---|---|
 | Success | done |
-| Task failure (bad code, failing tests) | report; do **not** fail over — the next backend will fail too |
+| Task failure (bad code, failing tests) | report; do **not** fail over |
 | Quota / rate limit exhausted | **fail over** |
 | Transient (5xx, network, overload) | retry same backend with backoff, then fail over |
 
-Conflating the second and third is the main way a tool like this wastes a second account's
-quota on a task that was never going to succeed.
+Detection reads the backend's **event stream**, never the project's test suite.
+[Spike 3](spikes/003-handoff-quality.md) found a task that sat at 0/60 for 42
+seconds and then jumped to 59/60.
 
-Detection reads the backend's **event stream**, never the project's own test suite.
-[Spike 3](spikes/003-handoff-quality.md) found a task that sat at 0/60 passing for 42 seconds
-and then jumped to 59/60: until the final module wires things together, a half-built tree and
-an untouched tree are indistinguishable by tests. Any progress or checkpoint trigger built on
-them fires only once the work is already done.
+Layered, most reliable first:
 
-Detection is layered, most reliable first:
-
-1. **Structured fields.** Claude's `api_error_status` (`null` on success) is the most likely
-   carrier of an HTTP 429, alongside `is_error`, `subtype`, and `terminal_reason`.
+1. **Structured fields.** Claude's `api_error_status` (`null` on success) is
+   the most likely 429 carrier, alongside `is_error`, `subtype`, and
+   `terminal_reason`. Codex `error` / `turn.failed` events.
 2. **Process exit code.**
-3. **Message-text matching** — last resort, quarantined in a single `detectors/` module with
-   a fixture corpus, because these strings change without notice and must never be scattered
-   through the codebase.
+3. **Message-text matching** — last resort, quarantined in `detectors.ts` with
+   a fixture corpus.
 
-**This is the largest unknown in the plan.** A 429 cannot be manufactured on demand, so the
-exact error envelope for either backend is unverified. See Spikes 1 and 2 — these should be
-resolved before the router is built, not after.
+A real 429 still cannot be manufactured on demand. Success envelopes are
+captured; limit fixtures are labelled synthetic until a real payload is
+logged. See [Spike 1](spikes/001-limit-envelopes.md).
 
-## 5. Component design
+## 6. Component design
 
 ```
-truss.config.ts          user config: backends, order, autonomy, budgets
 src/
-  cli/                   commander entry; one file per command
+  cli.ts                 commander entry
   backends/
-    types.ts             Backend interface + normalized result types
-    claude.ts            adapter: argv construction, stream-json parsing
-    cursor.ts            adapter
-    detectors/           limit/error classification + fixture corpus
+    types.ts             Backend interface + normalized result
+    spawn.ts             subprocess + stream parse
+    claude.ts | cursor.ts | codex.ts
+    registry.ts
+    detectors.ts         limit/error classification + fixtures
   core/
     router.ts            failover chain, retry/backoff, checkpoint-and-brief
-    scheduler.ts         parallel fan-out, concurrency cap, cancellation
-    checkpoint.ts        scratch-ref commits, handoff briefs
-    manifest.ts          run record: who did what, when, at what cost
-  git/
-    worktree.ts          create / list / reap lanes
-  report/                diff summaries, cost rollup, terminal output
+    checkpoint.ts        scratch-ref commits
+    brief.ts             handoff + bot context assembly
+    manifest.ts          who did what, when, at what cost
+    report.ts            labelled totals
+    config.ts
+    paths.ts
+  bots/                  identity, memory, transcript, talk
+  skills/                markdown packs
+  routines/              launchd install/uninstall
 ```
 
 ### The Backend interface
 
-Every backend is a subprocess that takes a prompt and a cwd, streams events, and terminates
-with a result. Sketch:
+A backend is a **launch preset** `(binary, defaultArgs)`, not a vendor. The
+same CLI can appear twice (Opus then Sonnet) before crossing vendors.
 
 ```ts
 interface Backend {
-  readonly id: string;                  // preset id: "claude-opus", "claude-sonnet", "cursor-gpt5"
-  readonly binary: string;              // "claude" | "cursor-agent"
-  readonly defaultArgs: string[];       // model, autonomy, endpoint…
-  available(): Promise<Availability>;   // installed? authed? quota known?
-  capabilities: Capabilities;           // reportsCost, supportsBudgetCap, supportsResume…
-  run(task: Task, opts: RunOpts): AgentRun;   // spawn; returns handle
-}
-
-interface AgentRun {
-  events: AsyncIterable<AgentEvent>;    // normalized from stream-json
-  result: Promise<NormalizedResult>;
-  cancel(): Promise<void>;
-}
-
-interface NormalizedResult {
-  ok: boolean;
-  outcome: "success" | "task_failure" | "limit_exhausted" | "transient" | "cancelled";
-  text: string;
-  sessionId?: string;
-  durationMs: number;
-  cost?: { usd: number; tokens: TokenUsage };   // absent for Cursor — by design
-  raw: unknown;                                  // never lose the original envelope
+  readonly id: string;
+  readonly binary: string;
+  readonly defaultArgs: string[];
+  available(): Promise<Availability>;
+  capabilities: Capabilities;
+  run(task: Task, opts: RunOpts): AgentRun;
 }
 ```
 
-`capabilities` is what keeps the asymmetries honest: the reporter asks
-`backend.capabilities.reportsCost` rather than assuming a number exists.
-
-**A backend is a launch preset, not a vendor** — a `(binary, defaultArgs)` pair, borrowed
-from Solo's reusable presets (§9). This matters for the failover chain: the same CLI can be
-registered several times under different models, so a chain can step *down* to a cheaper
-model on the same account before crossing to another vendor entirely. Quota exhaustion isn't
-binary, and the cheapest useful fallback is often still the incumbent.
-
-Adding a third backend (Codex, Aider, Gemini) should mean one file in `backends/` and one
-detector fixture — nothing else.
+Adding a third backend means one file in `backends/` and detector fixtures —
+nothing else. Codex is that third backend.
 
 ### Command surface
 
 ```
-truss run "<task>"              single task, failover chain
-truss split "<task>"            decompose + fan out across worktrees
-truss split -f tasks.yaml       explicit lane definitions
-truss status                    backend availability, auth, last-known limits
-truss lanes                     list active worktrees
-truss diff <lane>               review one lane's changes
-truss merge <lane>              merge a lane back
-truss reap                      delete finished worktrees and scratch refs
+truss init                      create ~/.truss, default bot, example skills
+truss talk [bot] [message]      outer loop
+truss run "<task>"              inner loop
+truss status                    backends, auth, last-known limits
+truss bots list|create|show
+truss skills list|show
+truss routines list|install|uninstall|run
 ```
 
-`run` is milestone 1. Everything else builds on the same adapter + manifest.
+`run` is the primitive. `talk` and routines call it.
 
-## 6. Concurrency and safety
+## 7. Concurrency and safety
 
-- **One worktree per lane, always.** Two agents in one tree will clobber each other. Truss
-  should refuse to run parallel lanes without isolation rather than offer it as a flag.
-- **Never auto-merge.** Lanes produce diffs for human review. Automatic merging of two
-  agents' interpretations of the same task is how you get plausible nonsense on `main`.
-- **Concurrency cap**, default 2–3. Ten parallel agents on one repo is disk and API thrash.
-- **Everything is reapable.** Any worktree or scratch ref Truss creates is namespaced under
-  `.truss/` and `refs/truss/` so `truss reap` is unambiguous and safe.
-- **Autonomy is explicit and defaults low.** Both backends can run shell commands. Truss
-  should never quietly upgrade autonomy to make a failover succeed.
+- **One worktree per lane, always** (M6). Refuse parallel lanes without isolation.
+- **Never auto-merge.**
+- **Everything is reapable** under `.truss/` and `refs/truss/`.
+- **Autonomy is explicit and defaults low.**
 
-## 7. Spikes to run before implementation
+## 8. Spikes
 
-Ordered by how much they'd cost to get wrong:
+1. Limit envelopes — [001](spikes/001-limit-envelopes.md). Success captured;
+   429 still opportunistic.
+2. Cursor headless round-trip — same report. `--trust` is required.
+3. Handoff quality — [003](spikes/003-handoff-quality.md). Continue, no gate.
+4. Event vocabularies — [004](spikes/004-stream-json.md).
+5. Solo gap check — [005](spikes/005-solo.md). Still no automatic quota failover.
 
-1. **Claude limit envelope.** Capture the exact `--output-format json` payload, stderr, and
-   exit code when a usage limit is hit. Requires catching a real limit — worth logging
-   opportunistically rather than waiting for.
-2. **Cursor limit envelope.** Same. Cursor's docs only document the success shape; the error
-   shape is entirely undocumented. Requires installing `cursor-agent` first.
-3. **Handoff quality.** Take a real mid-sized task, interrupt it halfway, and hand the
-   checkpoint-and-brief to the other backend. Does it usefully continue, or does it thrash?
-   This validates or kills §3 and should be run *before* the router is built.
-4. **Event normalization.** Diff the two `stream-json` event streams to find the common
-   subset worth surfacing in a live view.
+## 9. Known limitations
 
-## 8. Known limitations
+- **No shared vendor context.** Each backend re-reads the repo.
+- **Partial cost visibility.**
+- **Handoff is lossy.** Filesystem plus summary, never vendor reasoning.
+- **Local-first.** Routines do not run with the laptop closed.
+- **Coding CLIs only.** Chat subscriptions cannot drive a computer.
+- **Interactive vendor sessions cannot fail over.** Truss operates on headless
+  invocations it spawned.
 
-To be stated in the README rather than discovered by users:
+## 10. Prior art
 
-- **No shared context.** Each backend re-reads the repo from scratch. Parallel lanes pay
-  context cost N times and can reach contradictory conclusions.
-- **Partial cost visibility.** Cursor reports no spend. Totals will always be labelled.
-- **Interactive sessions can't fail over.** Truss operates on headless invocations. A live
-  interactive session that hits a limit is outside its reach; nothing hooks that moment.
-- **Handoff is lossy.** Per §3 — filesystem plus summary, never reasoning.
+### Grok Bot
 
-## 9. Prior art: Solo, and where Truss differs
+Named teammate, memory, skills, routines, cloud computer, automatic model
+failover inside a **fixed xAI/Cursor pool**. Truss copies the teammate shape
+and replaces the pool with your CLIs. The computer is this Mac, not a VM.
 
-[Solo](https://soloterm.com/) describes itself, near-verbatim, as "the meta-harness for
-coding agents." It is worth being precise about the overlap, because if it already covered
-this there would be no reason to build Truss.
+### Solo
 
-**What Solo is:** a Tauri desktop app — a workspace and control plane around your agents and
-your dev stack. It launches the real CLI binaries you already have installed rather than
-reimplementing them (preserving each tool's auth and config), groups them into workspaces,
-shares long-running dev processes via a `solo.yml` manifest so humans and agents don't spawn
-duplicate servers, and exposes terminal control to agents over MCP, HTTP and its own CLI.
-Agents get scratchpads, todos, comments, blockers, locks and timers as a coordination
-substrate, plus idle detection so one agent can wait on another.
+[Solo](https://soloterm.com/) is a GUI workspace that launches the real
+binaries you already have. Overlap worth keeping: launch the real binaries,
+reusable presets, scratchpads. Solo now documents git worktrees as a way to
+*share* todos across checkouts, and documents **manual** handoff when quota
+ends (write the scratchpad, launch a different tool). It does not
+automatically detect a 429 and continue the same task on the next vendor.
+That remains Truss's wedge. See [Spike 5](spikes/005-solo.md).
 
-**The overlap is real and worth learning from:**
-
-- *Launch the real binaries, don't reimplement them.* Solo's core bet is the same as Truss's
-  subprocess-adapter approach. Independent confirmation that this is the right boundary.
-- *Reusable launch presets* — the same agent CLI registered more than once under different
-  names and default args. Truss adopts this directly (§5): it's what makes same-vendor,
-  cheaper-model fallback expressible in a routing chain.
-- *Scratchpads as durable coordination outside a chat transcript.* Solo built this for
-  agent-to-agent handoff within a session. It happens to be a much better answer to Truss's
-  §3 cross-vendor handoff problem than a git diff alone, and is folded into the design there.
-- *Locks.* Truss isolates lanes with worktrees, which is stronger for files — but worktrees
-  do nothing for shared ports, databases or dev servers. Solo's locks cover a gap Truss's
-  isolation model genuinely has.
-
-**What Solo does not appear to do — the wedge:**
-
-- **No quota failover.** Solo's documented rate limiting is process-supervision backoff, so a
-  crashed dev server doesn't restart in an infinite loop. It is unrelated to API usage limits.
-  Nothing in its docs routes work to a second vendor when the first account is exhausted —
-  which is the entire problem Truss exists for.
-- **No cost or token accounting.** Not mentioned in its docs.
-- **No git worktree isolation.** Coordination is via locks and conventions, not separate trees.
-
-**Positioning.** Solo is a GUI workspace that makes concurrent agents observable and
-coordinated; Truss is a headless CLI that makes capacity fungible. They are complementary,
-not competing — the natural end state is `truss run` being one of the commands Solo
-supervises. That also means Truss should stay a well-behaved CLI with clean exit codes and
-stream-json output, rather than growing a UI of its own.
-
-**Honest caveat:** this assessment is from Solo's public docs and marketing pages, not from
-using it. Before building M1 it is worth actually installing Solo and confirming the three
-gaps above — if it has quietly shipped quota failover, the wedge closes and Truss should
-become a plugin rather than a tool.
+Positioning: Solo is a visible workspace; Truss is a teammate that makes
+capacity fungible. Complementary. Talk stays CLI-first rather than growing a
+UI of its own.

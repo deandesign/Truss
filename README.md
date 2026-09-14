@@ -1,56 +1,70 @@
 # Truss
 
-A meta-harness for coding agents.
+A local Grok Bot across the coding agents you already pay for.
 
-> **Status: design draft.** No implementation yet. The design is in
-> [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md); the plan is in
-> [`docs/ROADMAP.md`](docs/ROADMAP.md). Feedback on those is the point of this repo today.
+> Grok Bot, but the computer is yours and the brains are every coding-agent
+> subscription you already pay for. Design: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+> Plan: [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
-## What it's for
-
-Coding agents are sold as sessions but consumed as capacity. If you have both a Claude
-subscription and a Cursor subscription, hitting a usage limit on one stops your work while
-the other sits idle. And when a task is obviously parallel, there's no way to put two agents
-on it without them overwriting each other's files.
-
-Truss sits above the agent CLIs and owns the parts they can't own individually — routing,
-isolation, and accounting — while they keep doing the coding.
+You message a named bot. Truss runs the work on whichever coding-agent CLI still
+has quota — Claude Code, Cursor Agent, Codex, anything else signed in on this
+Mac. When one account hits a limit, the bot continues on the next. Vendor
+sessions never cross; Truss owns the conversation, the memory, and the handoff.
 
 ```
-truss run "add tests for the parser"      # fails over to another backend when quota runs out
-truss split "refactor auth"               # fans out across isolated git worktrees
+truss talk builder "add tests for the parser"
+truss run "add tests for the parser"          # inner loop, no bot wrapper
+truss status                                  # which CLIs are installed, authed, limited
 ```
 
 ## How it works
 
-Both Claude Code and `cursor-agent` expose a headless mode (`-p`) that emits a JSON result
-envelope, and the two envelopes share most of their fields. Truss normalizes them behind a
-small `Backend` interface, classifies each run's outcome, and routes accordingly — failing
-over on quota exhaustion, but *not* on ordinary task failure, since the next backend would
-fail the same way.
+The bot is the outer loop. The vendor CLIs are the inner loop.
 
-Parallel work gets one git worktree per lane, created and reaped by Truss, so no two agents
-ever share a working tree.
+```
+You → truss talk → Bot (role, memory, skills, transcript)
+                 → Router (ordered chain of coding CLIs)
+                 → claude | cursor-agent | codex
+                 → this Mac
+```
+
+Claude Code, `cursor-agent`, and Codex all expose a headless mode that ends in a
+result Truss can classify. Quota exhaustion fails over. Ordinary task failure
+does **not** — the next backend would fail the same way.
+
+Handoff is checkpoint-and-brief: the working tree is committed to a scratch ref
+after each tool call, and the successor gets the original task, a diffstat, and
+the bot's durable memory. Validated in
+[Spike 3](docs/spikes/003-handoff-quality.md): continue, no validity gate.
 
 ## What it deliberately doesn't do
 
-- **Share context between backends.** Each one re-reads the repo. Parallel lanes pay that
-  cost N times and can reach contradictory conclusions. This is parallelism, not collaboration.
-- **Hand off a conversation.** Vendor session stores are private and incompatible. When Truss
-  fails over mid-task it checkpoints the working tree to a scratch ref and briefs the next
-  agent with a summary and a diff. Useful, but lossy.
-- **Auto-merge lanes.** Lanes produce diffs for human review.
-- **Rescue an interactive session.** Truss works on headless invocations. A live session that
-  hits a limit is out of reach.
-- **Report a single trustworthy cost number.** Claude reports spend; Cursor doesn't. Totals
-  are labelled by what's actually known.
+- **Share vendor conversation state.** `claude --resume` cannot resume a Cursor
+  chat. Truss briefs the next CLI from disk. Useful, but lossy.
+- **Pretend chat subscriptions can drive a computer.** ChatGPT Plus and Claude.ai
+  chat stay out until they have a real CLI.
+- **Keep working with the laptop closed.** Local-first. Routines use `launchd`
+  and only fire while this Mac is awake. A cloud computer is later.
+- **Auto-merge parallel lanes.** When fan-out exists, lanes produce diffs for
+  review.
+- **Report a single trustworthy cost number.** Claude reports spend; Cursor
+  doesn't. Totals are labelled by what's actually known.
+- **Grow a Solo-style GUI.** Talk is CLI-first. A chat UI is a later skin.
 
 ## Requirements
 
-- Node.js
-- [Claude Code](https://claude.com/claude-code) and/or [Cursor CLI](https://cursor.com/docs/cli),
-  authenticated
-- git (worktree support)
+- Node.js 22+
+- git
+- At least one of [Claude Code](https://claude.com/claude-code),
+  [Cursor CLI](https://cursor.com/docs/cli), or
+  [Codex CLI](https://developers.openai.com/codex/cli), authenticated
+
+```bash
+npm install
+npm run build
+node dist/cli.js init
+node dist/cli.js status
+```
 
 ## License
 
