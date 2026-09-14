@@ -43,8 +43,12 @@ export function buildBrief(input: BriefInput): string {
       ),
     );
   }
-  parts.push(
-    "Keep `memory.md` current as you work: plan, decisions made, what's left.",
-  );
+  // Only a bot has durable memory to keep. `truss run` has no bot, so asking
+  // for memory.md there just drops a stray file in whatever repo you ran in.
+  if (input.identity) {
+    parts.push(
+      "Keep `memory.md` current as you work: plan, decisions made, what's left.",
+    );
+  }
   return parts.filter(Boolean).join("\n");
 }

@@ -19,6 +19,32 @@ describe("brief", () => {
     expect(brief).toContain("previous backend (claude)");
     expect(brief).toContain("memory.md");
   });
+
+  it("does not ask for memory.md when no bot is attached", () => {
+    // `truss run` passes no identity. Asking a bot-less run to maintain memory
+    // leaves a stray memory.md in whatever repo the task happened to run in.
+    const brief = buildBrief({ task: "add tests" });
+    expect(brief).toContain("add tests");
+    expect(brief).not.toContain("memory.md");
+  });
+
+  it("still asks for memory.md on a handoff when a bot is attached", () => {
+    const brief = buildBrief({
+      task: "add tests",
+      identity: "builder — Repo builder",
+      handoff: { from: "claude", diffstat: "1 file" },
+    });
+    expect(brief).toContain("memory.md");
+  });
+
+  it("does not ask for memory.md on a bot-less handoff", () => {
+    const brief = buildBrief({
+      task: "add tests",
+      handoff: { from: "claude", diffstat: "1 file" },
+    });
+    expect(brief).toContain("previous backend (claude)");
+    expect(brief).not.toContain("memory.md");
+  });
 });
 
 describe("report", () => {
