@@ -20,6 +20,9 @@ import {
 } from "../routines/launchd.js";
 import { listSkills, loadSkill } from "../skills/store.js";
 import { createLiveView } from "../ui/live.js";
+import { loginCmd, logoutCmd, printStatus } from "./auth-commands.js";
+import { getConfig, setConfig, showConfig } from "./config-commands.js";
+import { setupCmd } from "./setup.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../../package.json") as { version: string };
@@ -44,44 +47,62 @@ export function createProgram(): Command {
     });
 
   program
+    .command("setup")
+    .description("Interactive first-run setup: backends, order, autonomy")
+    .option("--order <ids>", "set the failover order without prompting")
+    .option("--autonomy <level>", "low | medium | high, without prompting")
+    .action(async (opts: { order?: string; autonomy?: string }) => {
+      initHome();
+      await setupCmd(opts);
+    });
+
+  program
     .command("status")
-    .description("Backend availability, auth, last-known limits")
+    .description("Backend health, sign-in state, and quota headroom")
     .action(async () => {
       initHome();
-      const config = loadConfig();
-      const limits = loadLimits();
-      for (const id of config.order) {
-        const preset = config.backends.find((b) => b.id === id);
-        if (!preset) continue;
-        const backend = backendFromPreset(preset);
-        const avail = await backend.available();
-        const state = limits[id];
-        const health = !avail.installed
-          ? "missing"
-          : avail.usable
-            ? "ready"
-            : "broken";
-        const bits = [
-          id.padEnd(12),
-          health.padEnd(8),
-          state?.at ? `limited@${state.at}` : "no known limit",
-        ];
-        console.log(bits.join("  "));
-        if (avail.detail) console.log(`             ${avail.detail}`);
-        if (health === "broken") {
-          console.log("             skipped by the router until it runs");
-        }
-        const windows = state?.quota?.windows ?? [];
-        if (windows.length) {
-          const headroom = windows
-            .map(
-              (w) =>
-                `${w.key.replace(/_/g, " ")} ${Math.round(w.utilization * 100)}% used`,
-            )
-            .join(", ");
-          console.log(`             quota: ${headroom}`);
-        }
-      }
+      await printStatus();
+    });
+
+  program
+    .command("login")
+    .description("Sign in to a backend using its own CLI (Truss never sees a credential)")
+    .argument("[backend]", "backend id; omit to sign in to any that need it")
+    .action(async (backend?: string) => {
+      initHome();
+      await loginCmd(backend);
+    });
+
+  program
+    .command("logout")
+    .description("Sign out of a backend using its own CLI")
+    .argument("<backend>", "backend id")
+    .action(async (backend: string) => {
+      initHome();
+      await logoutCmd(backend);
+    });
+
+  const config = program
+    .command("config")
+    .description("Show or change Truss settings")
+    .action(() => {
+      initHome();
+      showConfig();
+    });
+  config
+    .command("get")
+    .argument("<key>", "autonomy | order")
+    .action((key: string) => {
+      initHome();
+      getConfig(key);
+    });
+  config
+    .command("set")
+    .argument("<key>", "autonomy | order")
+    .argument("<value>", "e.g. medium, or claude,cursor")
+    .action((key: string, value: string) => {
+      initHome();
+      setConfig(key, value);
     });
 
   program

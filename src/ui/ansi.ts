@@ -1,6 +1,7 @@
 /* Minimal ANSI helpers. Truss has one dependency and this does not warrant a second. */
 
 const ESCAPE = /\x1b\[[0-9;]*m/g;
+const HAS_ESCAPE = /\x1b\[[0-9;]*m/;
 
 export interface Style {
   (text: string): string;
@@ -78,7 +79,9 @@ export function clip(text: string, width: number): string {
     seen += 1;
     i += 1;
   }
-  return `${out}…\x1b[0m`;
+  // Only reset when the text actually carried styling, so a plain-text clip
+  // does not print a stray escape.
+  return `${out}…${HAS_ESCAPE.test(text) ? "\x1b[0m" : ""}`;
 }
 
 export function pad(text: string, width: number): string {

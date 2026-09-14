@@ -282,4 +282,9 @@ describe("clip", () => {
     const clipped = clip(`\x1b[32m${"a".repeat(40)}\x1b[39m`, 10);
     expect(clipped.endsWith("\x1b[0m")).toBe(true);
   });
+
+  it("emits no escape at all when clipping plain text", () => {
+    // Status lines are clipped with colour off; a stray reset showed as "[0m".
+    expect(clip("a".repeat(40), 10)).not.toMatch(/\x1b/);
+  });
 });

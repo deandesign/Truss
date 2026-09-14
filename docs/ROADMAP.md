@@ -72,6 +72,25 @@ still have to be classified from error text alone.
 **Exit criterion:** you can message a named bot and the run uses the bot's role
 and memory, not a vendor session.
 
+## M3a — Terminal MVP
+
+Enough to hand someone a terminal and have them get to a working run.
+
+- [x] `truss setup` — survey installed CLIs, show sign-in state, choose order
+      and autonomy; `--order` / `--autonomy` for scripted use
+- [x] `truss login [backend]` / `truss logout <backend>` — delegate to each
+      vendor's own flow; Truss never handles a credential
+- [x] Real sign-in detection (`claude auth status --json`,
+      `cursor-agent status --format json`) with account and plan, replacing
+      `auth=unknown`
+- [x] `truss config` / `config get` / `config set` with validation, so
+      settings no longer need hand-edited JSON
+- [x] `truss status` — health, account, quota headroom in one view
+- [x] Tests can no longer write to the real `~/.truss`
+
+**Exit criterion:** a new user runs `truss setup`, is told what to sign in to,
+and gets a successful `truss run` without editing a file by hand.
+
 ## M3 — Skills
 
 - [x] Shared markdown skill packs under `~/.truss/skills/`

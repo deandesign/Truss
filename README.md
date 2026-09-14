@@ -11,9 +11,22 @@ account hits a limit, the run continues on the next. Vendor sessions never
 cross; Truss owns the conversation, the memory, and the handoff.
 
 ```
-truss talk builder "add tests for the parser"
+truss setup                                   # first run: pick backends, order, autonomy
+truss login                                   # sign in to any backend that needs it
+truss status                                  # health, account, quota headroom
 truss run "add tests for the parser"          # inner loop, no bot wrapper
-truss status                                  # ready / broken / missing, quota headroom
+truss talk builder "add tests for the parser" # bot: role, memory, skills, transcript
+```
+
+```
+$ truss status
+
+  ● claude  ready    logged in as you@example.com (team)
+                     5h ███████░░░ 68%   7d ████░░░░░░ 43%
+  ● cursor  ready    logged in as you@example.com
+  ○ codex   broken   will not run
+                     spawn …/codex-darwin-arm64/vendor/…/codex ENOENT
+                     skipped by the router
 ```
 
 On a terminal, a run renders live — the backend chain, the tool calls as they
@@ -39,6 +52,40 @@ land, quota headroom per window, and cost labelled by what's actually known:
 
 Piped, or run from a `launchd` routine, the same events print append-only with
 no escape sequences. `--plain` forces that.
+
+## Signing in
+
+**Truss never handles a credential.** Each CLI owns its own tokens, so
+`truss login [backend]` hands the terminal to that vendor's own flow —
+`claude auth login`, `cursor-agent login` — and Truss only ever *reads* the
+state they keep (`claude auth status --json`, `cursor-agent status --format
+json`) to report who you are signed in as and on what plan.
+
+```
+truss login              # any backend that needs it
+truss login cursor       # just that one
+truss logout cursor
+```
+
+## Configuring it
+
+```
+truss config                          # show current settings
+truss config set autonomy medium      # low | medium | high
+truss config set order claude,cursor  # failover order
+truss setup --order claude,cursor --autonomy medium   # scriptable, no prompts
+```
+
+Autonomy is the setting that matters most:
+
+| | what the agent may do |
+|---|---|
+| `low` | read and reason only — **edits are declined** |
+| `medium` | edits auto-accepted, shell allowed |
+| `high` | no remaining guardrails |
+
+It defaults to `low`, which means a write task reports success having changed
+nothing. That is deliberate, but it surprises everyone once.
 
 ## How it works
 
