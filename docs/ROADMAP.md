@@ -93,7 +93,19 @@ and memory, not a vendor session.
 - [x] Codex CLI (`codex exec --json`) as the OpenAI backend
 - [x] One file in `backends/` + detector fixtures — nothing else
 
-**Exit criterion:** adding Codex does not change the router.
+**Exit criterion:** adding Codex does not change the router. Met — the adapter
+is one file and the router is untouched.
+
+**Not verified against a running Codex.** The only install available exits
+`ENOENT` (its vendored native binary is missing) and there is no account to
+test with, so the argv mapping has never been exercised end to end. One known
+defect left deliberately unfixed: `autonomyFlags` in `backends/codex.ts`
+returns identical flags for `low` and `medium`, both granting
+`--sandbox workspace-write`. So "low" is not low on Codex, which contradicts
+[ARCHITECTURE.md §3](./ARCHITECTURE.md)'s "autonomy defaults low, and Truss
+never quietly upgrades permissions". Fixing it blind would mean guessing flag
+values that cannot be checked here; it is deferred to the broader
+multi-provider pass below rather than patched on faith.
 
 ## M6 — Fan-out (`truss split`) — later
 
@@ -116,6 +128,10 @@ Not commitments — ideas worth revisiting once M1–M5 are real.
   gives per-window utilization on every run
   ([Spike 6](./spikes/006-quota-telemetry.md)); what's missing is the policy,
   not the data. Cursor and Codex would stay blind.
+- **More providers, Codex included.** Verify the Codex argv mapping against a
+  working install (and fix its `low`/`medium` autonomy collision), then add
+  Gemini / Aider. Each should stay one file in `backends/` plus detector
+  fixtures; if it isn't, the adapter boundary is wrong.
 - Cache an `unusable` verdict so a CLI installed without an account costs no
   spawn per run, with a re-probe once the user might have logged in
 - Consensus mode: same task to N backends, diff the answers
