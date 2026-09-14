@@ -8,7 +8,7 @@ import type {
   RunOpts,
   Task,
 } from "./types.js";
-import { which } from "../core/which.js";
+import { checkAvailability } from "./available.js";
 
 const CAPABILITIES: Capabilities = {
   reportsCost: false,
@@ -35,13 +35,7 @@ export class CursorBackend implements Backend {
   ) {}
 
   async available(): Promise<Availability> {
-    const binaryPath = await which(this.binary);
-    return {
-      installed: Boolean(binaryPath),
-      authed: "unknown",
-      binaryPath,
-      detail: binaryPath ? undefined : `${this.binary} not on PATH`,
-    };
+    return checkAvailability(this.binary);
   }
 
   argv(task: Task, opts: RunOpts): string[] {

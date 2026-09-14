@@ -8,8 +8,9 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "vitest run",
-    "prepare": "tsc"
+    "test": "tsc -p tsconfig.check.json && vitest run",
+    "prepare": "tsc",
+    "typecheck": "tsc -p tsconfig.check.json"
   },
   "engines": {
     "node": ">=22"

@@ -45,7 +45,7 @@ export type RouterEvent =
       kind: "handoff";
       from: string;
       to?: string;
-      reason: "limit_exhausted" | "transient";
+      reason: "limit_exhausted" | "transient" | "unusable";
     }
   | { kind: "run_end"; manifest: RunManifest };
 
@@ -103,11 +103,11 @@ export async function route(opts: RouteOpts): Promise<RunManifest> {
   for (let i = 0; i < opts.backends.length; i++) {
     const backend = opts.backends[i];
     const availability = await backend.available();
-    if (!availability.installed) {
+    if (!availability.usable) {
       emit({
         kind: "backend_skip",
         backendId: backend.id,
-        reason: availability.detail ?? `${backend.binary} not on PATH`,
+        reason: availability.detail ?? `${backend.binary} is not usable`,
       });
       continue;
     }
@@ -212,6 +212,19 @@ export async function route(opts: RouteOpts): Promise<RunManifest> {
         });
         handoffFrom = backend.id;
         partial = result.text;
+        advance = true;
+        continue;
+      }
+
+      // The backend could not run — no account, or a broken install. The task
+      // never started, so move on instead of reporting the task as failed.
+      if (result.outcome === "unusable") {
+        emit({
+          kind: "handoff",
+          from: backend.id,
+          to: nextBackend,
+          reason: "unusable",
+        });
         advance = true;
         continue;
       }

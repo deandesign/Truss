@@ -3,7 +3,9 @@ export type Outcome =
   | "task_failure"
   | "limit_exhausted"
   | "transient"
-  | "cancelled";
+  | "cancelled"
+  /** The backend itself cannot run: broken install, or no account. */
+  | "unusable";
 
 export type Autonomy = "low" | "medium" | "high";
 
@@ -18,7 +20,10 @@ export interface Capabilities {
 }
 
 export interface Availability {
+  /** Resolves on PATH. */
   installed: boolean;
+  /** Actually executes — see probeVersion(). */
+  usable: boolean;
   authed: "unknown" | boolean;
   binaryPath?: string;
   detail?: string;

@@ -182,3 +182,55 @@ describe("classify does not read limits out of ordinary output", () => {
     ).toBe("transient");
   });
 });
+
+describe("a backend that cannot run is not a task failure", () => {
+  it("reads a missing binary as unusable", () => {
+    expect(
+      classify({
+        exitCode: 1,
+        stderr:
+          "Error: spawn /usr/local/lib/node_modules/@openai/codex/vendor/codex ENOENT",
+        raw: { stdout: "", stderr: "" },
+      }),
+    ).toBe("unusable");
+  });
+
+  it("reads a missing login as unusable, not as a spent account", () => {
+    expect(
+      classify({
+        exitCode: 1,
+        stderr: "Not logged in. Run `codex login` to continue.",
+        raw: { stdout: "", stderr: "" },
+      }),
+    ).toBe("unusable");
+  });
+
+  it("reads 401 as unusable and 402 as a limit", () => {
+    expect(classify({ exitCode: 1, raw: { api_error_status: 401 } })).toBe(
+      "unusable",
+    );
+    expect(classify({ exitCode: 1, raw: { api_error_status: 402 } })).toBe(
+      "limit_exhausted",
+    );
+  });
+
+  it("prefers unusable over limit when the text says unauthorized", () => {
+    // "unauthorized" must not spend a failover as though quota ran out.
+    expect(
+      classify({
+        exitCode: 1,
+        stderr: "401 Unauthorized: invalid api key",
+        raw: { type: "result", is_error: true, result: "" },
+      }),
+    ).toBe("unusable");
+  });
+
+  it("does not call an ordinary failure unusable", () => {
+    expect(
+      classify({
+        exitCode: 1,
+        raw: { type: "result", is_error: true, result: "2 tests failed" },
+      }),
+    ).toBe("task_failure");
+  });
+});

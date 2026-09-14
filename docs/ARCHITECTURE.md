@@ -174,6 +174,21 @@ successor handed a truncated file repaired it unprompted.
 | Task failure (bad code, failing tests) | report; do **not** fail over |
 | Quota / rate limit exhausted | **fail over** |
 | Transient (5xx, network, overload) | retry same backend with backoff, then fail over |
+| Backend unusable (broken install, no account) | skip; continue the chain, spend no quota mark |
+
+`unusable` is separate from task failure on purpose. A backend that cannot run
+exits non-zero with a spawn or auth error and no envelope, which read as
+`task_failure` — and task failure *halts* the chain. So a broken or unowned
+backend ahead of a working one silently disabled everything behind it, and
+presented as the task being broken. See
+[Spike 7](spikes/007-availability.md).
+
+**Installed is not usable.** `which` finding a binary does not mean it runs: an
+npm-installed CLI whose vendored native binary is missing resolves on PATH and
+fails to spawn. `Availability` carries `usable` from a `--version` probe, and
+the router skips on that, so an unusable backend costs a probe rather than a
+run. Auth cannot be probed without a billable call, so `authed` stays
+`"unknown"` and is discovered from a run's outcome.
 
 Detection reads the backend's **event stream**, never the project's test suite.
 [Spike 3](spikes/003-handoff-quality.md) found a task that sat at 0/60 for 42

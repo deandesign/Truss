@@ -56,14 +56,21 @@ export function createProgram(): Command {
         const backend = backendFromPreset(preset);
         const avail = await backend.available();
         const state = limits[id];
+        const health = !avail.installed
+          ? "missing"
+          : avail.usable
+            ? "ready"
+            : "broken";
         const bits = [
           id.padEnd(12),
-          avail.installed ? "installed" : "missing",
-          `auth=${String(avail.authed)}`,
+          health.padEnd(8),
           state?.at ? `limited@${state.at}` : "no known limit",
         ];
         console.log(bits.join("  "));
         if (avail.detail) console.log(`             ${avail.detail}`);
+        if (health === "broken") {
+          console.log("             skipped by the router until it runs");
+        }
         const windows = state?.quota?.windows ?? [];
         if (windows.length) {
           const headroom = windows

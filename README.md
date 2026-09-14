@@ -13,7 +13,7 @@ cross; Truss owns the conversation, the memory, and the handoff.
 ```
 truss talk builder "add tests for the parser"
 truss run "add tests for the parser"          # inner loop, no bot wrapper
-truss status                                  # installed, authed, quota headroom
+truss status                                  # ready / broken / missing, quota headroom
 ```
 
 On a terminal, a run renders live — the backend chain, the tool calls as they
@@ -88,6 +88,10 @@ the bot's durable memory. Validated in
 - At least one of [Claude Code](https://claude.com/claude-code),
   [Cursor CLI](https://cursor.com/docs/cli), or
   [Codex CLI](https://developers.openai.com/codex/cli), authenticated
+
+A backend you don't have an account for is skipped, not fatal — `truss status`
+reports each one as `ready`, `broken`, or `missing` with the reason. You can
+also drop it from `order` in `~/.truss/config.json`.
 
 ```bash
 npm install

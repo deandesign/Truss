@@ -26,6 +26,28 @@ const LIMIT_PATTERNS = [
   /limit reached/i,
 ];
 
+/**
+ * The backend cannot run at all — a broken install, or no account for it.
+ * Distinct from task_failure: the task never ran, so the chain must move on
+ * rather than stop and report the task as broken.
+ */
+const UNUSABLE_PATTERNS = [
+  /\benoent\b/i,
+  /command not found/i,
+  /no such file or directory/i,
+  /not logged in/i,
+  /please (?:run .*)?log ?in/i,
+  /please sign in/i,
+  /run `?[a-z-]+ login`?/i,
+  /unauthori[sz]ed/i,
+  /authentication (?:failed|required)/i,
+  /(?:invalid|missing|no) api key/i,
+  /\b401\b/,
+  /\b403\b/,
+  /not authenticated/i,
+  /no account/i,
+];
+
 const TRANSIENT_PATTERNS = [
   /overloaded/i,
   /service unavailable/i,
@@ -147,6 +169,7 @@ export function classify(input: ClassifyInput): Outcome {
 
   // 2. Structured status codes — the most reliable signal, trusted either way.
   const status = statusOf(input.raw);
+  if (status === 401 || status === 403) return "unusable";
   if (status === 429 || status === 402) return "limit_exhausted";
   if (status !== undefined && status >= 500) return "transient";
 
@@ -158,6 +181,8 @@ export function classify(input: ClassifyInput): Outcome {
 
   // 4. Only now, with a genuine failure in hand, read the error text.
   const text = errorText(input);
+  // Unusable before limit: "unauthorized" must not be read as a spent account.
+  if (UNUSABLE_PATTERNS.some((p) => p.test(text))) return "unusable";
   if (LIMIT_PATTERNS.some((p) => p.test(text))) return "limit_exhausted";
   if (TRANSIENT_PATTERNS.some((p) => p.test(text))) return "transient";
 

@@ -49,6 +49,10 @@ The failover router talk and routines sit on.
 - [x] Live quota telemetry from Claude's `rate_limit_event`, recorded per backend
 - [x] `RouterEvent` lifecycle + live run view (`truss run`, `truss talk`),
       append-only off a terminal
+- [x] Availability probes `--version`, not just `which`; a backend that cannot
+      run is skipped rather than halting the chain
+      ([Spike 7](./spikes/007-availability.md))
+- [x] Tests and `fake.ts` are typechecked (`npm test` runs `tsconfig.check.json`)
 
 **Exit criterion:** a task that exhausts Claude's quota finishes on Cursor, and
 the report says honestly which backend did what.
@@ -112,6 +116,8 @@ Not commitments — ideas worth revisiting once M1–M5 are real.
   gives per-window utilization on every run
   ([Spike 6](./spikes/006-quota-telemetry.md)); what's missing is the policy,
   not the data. Cursor and Codex would stay blind.
+- Cache an `unusable` verdict so a CLI installed without an account costs no
+  spawn per run, with a re-probe once the user might have logged in
 - Consensus mode: same task to N backends, diff the answers
 - Expose Truss over MCP so a lead agent can open lanes itself
 - Run cleanly as a supervised command inside Solo

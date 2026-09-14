@@ -28,10 +28,16 @@ export class FakeBackend implements Backend {
     readonly binary: string,
     private impl: (prompt: string) => NormalizedResult | Promise<NormalizedResult>,
     public installed = true,
+    public usable = installed,
   ) {}
 
   async available(): Promise<Availability> {
-    return { installed: this.installed, authed: true };
+    return {
+      installed: this.installed,
+      usable: this.usable,
+      authed: true,
+      detail: this.usable ? undefined : `${this.binary} is not usable`,
+    };
   }
 
   argv(task: Task): string[] {
@@ -51,7 +57,7 @@ export class FakeBackend implements Backend {
 
 export function result(
   outcome: NormalizedResult["outcome"],
-  text = outcome,
+  text: string = outcome,
   extra: Partial<NormalizedResult> = {},
 ): NormalizedResult {
   return {

@@ -15,6 +15,7 @@ type BackendState =
   | "limit_exhausted"
   | "transient"
   | "cancelled"
+  | "unusable"
   | "skipped";
 
 interface Activity {
@@ -172,6 +173,7 @@ const MARKS: Record<BackendState, string> = {
   limit_exhausted: "⚡",
   transient: "~",
   cancelled: "⊘",
+  unusable: "⊘",
   skipped: "⊘",
 };
 
@@ -392,6 +394,7 @@ const OUTCOME_WORD: Record<FinalOutcome, string> = {
   limit_exhausted: "out of quota",
   transient: "unavailable",
   cancelled: "cancelled",
+  unusable: "no usable backend",
   no_backend: "no backend available",
 };
 
@@ -420,7 +423,7 @@ function finalSummary(
       ),
     );
   }
-  if (outcome === "no_backend") {
+  if (outcome === "no_backend" || outcome === "unusable") {
     lines.push(
       `    ${palette.dim("no configured backend is installed — check `truss status`")}`,
     );

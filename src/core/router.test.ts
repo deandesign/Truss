@@ -140,4 +140,65 @@ describe("router", () => {
     expect(events).toContain("handoff");
     expect(events.at(-1)).toBe("run_end");
   });
+  it("skips a backend that is installed but will not run", async () => {
+    const cwd = tmp();
+    // codex resolves on PATH but its vendored binary is missing, so the probe
+    // fails. Before this was detected the router spawned it, read ENOENT as a
+    // task failure, and halted the chain without ever trying Claude.
+    const broken = new FakeBackend(
+      "codex",
+      "codex",
+      () => result("success", "should not run"),
+      true,
+      false,
+    );
+    const claude = new FakeBackend("claude", "claude", () =>
+      result("success", "ok"),
+    );
+    const events: string[] = [];
+    const manifest = await route({
+      backends: [broken, claude],
+      task: { prompt: "ping", cwd },
+      autonomy: "low",
+      onProgress: (e) => events.push(e.kind),
+    });
+    expect(broken.prompts).toHaveLength(0);
+    expect(manifest.steps.map((s) => s.backendId)).toEqual(["claude"]);
+    expect(manifest.finalOutcome).toBe("success");
+    expect(events).toContain("backend_skip");
+  });
+
+  it("moves past a backend with no account instead of failing the task", async () => {
+    const cwd = tmp();
+    const noAccount = new FakeBackend("codex", "codex", () =>
+      result("unusable", "Not logged in. Run `codex login`."),
+    );
+    const claude = new FakeBackend("claude", "claude", () =>
+      result("success", "ok"),
+    );
+    const manifest = await route({
+      backends: [noAccount, claude],
+      task: { prompt: "ping", cwd },
+      autonomy: "low",
+    });
+    expect(manifest.finalOutcome).toBe("success");
+    expect(claude.prompts).toHaveLength(1);
+  });
+
+  it("does not brief a successor about a backend that never ran", async () => {
+    const cwd = tmp();
+    const claude = new FakeBackend("claude", "claude", () =>
+      result("success", "ok"),
+    );
+    await route({
+      backends: [
+        new FakeBackend("codex", "codex", () => result("unusable", "no account")),
+        claude,
+      ],
+      task: { prompt: "ping", cwd },
+      autonomy: "low",
+    });
+    // An unusable backend produced no work, so there is nothing to continue.
+    expect(claude.prompts[0]).not.toContain("previous backend");
+  });
 });
