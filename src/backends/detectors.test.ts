@@ -61,3 +61,124 @@ describe("classify", () => {
     expect(classify({ exitCode: 1, aborted: true })).toBe("cancelled");
   });
 });
+
+/**
+ * Regression corpus. Each case here was an observed misclassification: the
+ * classifier used to pattern-match the whole stdout stream, so a repo path, a
+ * prompt, or the agent's own prose could look like a quota error.
+ */
+describe("classify does not read limits out of ordinary output", () => {
+  const stream = readFileSync(
+    join(fixtures, "claude-success-stream.jsonl"),
+    "utf8",
+  );
+
+  it("a real success stream whose cwd contains a 5xx-looking number", () => {
+    // Captured under /private/tmp/claude-501/… — 501 is the macOS UID, and the
+    // init event echoes cwd. This cost three runs of a one-word task.
+    expect(stream).toContain("claude-501");
+    expect(
+      classify({
+        exitCode: 0,
+        stdout: stream,
+        raw: {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "pong",
+          api_error_status: null,
+        },
+      }),
+    ).toBe("success");
+  });
+
+  it("a success whose result text is about rate limiting", () => {
+    expect(
+      classify({
+        exitCode: 0,
+        raw: {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "I added retry handling for rate limit errors.",
+          api_error_status: null,
+        },
+      }),
+    ).toBe("success");
+  });
+
+  it("a success that mentions HTTP 429 in the agent's prose", () => {
+    expect(
+      classify({
+        exitCode: 0,
+        stdout:
+          '{"type":"assistant","message":{"content":[{"text":"added a test for HTTP 429 retries"}]}}',
+        raw: { type: "result", is_error: false, result: "ok" },
+      }),
+    ).toBe("success");
+  });
+
+  it("a success whose token counts contain a 5xx-looking number", () => {
+    expect(
+      classify({
+        exitCode: 0,
+        raw: {
+          type: "result",
+          is_error: false,
+          result: "ok",
+          usage: { input_tokens: 512, output_tokens: 40 },
+        },
+      }),
+    ).toBe("success");
+  });
+
+  it("a task failure whose test output mentions quota", () => {
+    expect(
+      classify({
+        exitCode: 1,
+        stdout: "tests failed: expected quota to be tracked",
+        raw: { type: "result", is_error: true, result: "2 tests failed" },
+      }),
+    ).toBe("task_failure");
+  });
+
+  it("a task failure in a repo about rate limiting", () => {
+    expect(
+      classify({
+        exitCode: 1,
+        stdout: "FAIL src/ratelimit.test.ts — rate limit handler returned 429",
+        raw: { type: "result", is_error: true, result: "1 test failed" },
+      }),
+    ).toBe("task_failure");
+  });
+
+  it("still reads a limit out of stderr when the run really failed", () => {
+    expect(
+      classify({
+        exitCode: 1,
+        stderr: "Error: usage limit reached. Resets at 4pm.",
+        raw: { type: "result", is_error: true, result: "" },
+      }),
+    ).toBe("limit_exhausted");
+  });
+
+  it("still reads a limit from unstructured stdout when there is no envelope", () => {
+    expect(
+      classify({
+        exitCode: 1,
+        stdout: "You've hit your usage limit",
+        raw: { stdout: "You've hit your usage limit", stderr: "" },
+      }),
+    ).toBe("limit_exhausted");
+  });
+
+  it("still detects a transient network failure", () => {
+    expect(
+      classify({
+        exitCode: 1,
+        stderr: "fetch failed: ECONNRESET",
+        raw: { type: "result", is_error: true, result: "" },
+      }),
+    ).toBe("transient");
+  });
+});
