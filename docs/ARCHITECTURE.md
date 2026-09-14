@@ -211,10 +211,32 @@ src/
     report.ts            labelled totals
     config.ts
     paths.ts
+  ui/
+    live.ts              live run view; append-only fallback off a terminal
+    ansi.ts              colour + width helpers
   bots/                  identity, memory, transcript, talk
   skills/                markdown packs
   routines/              launchd install/uninstall
 ```
+
+### The interface
+
+`route()` emits a `RouterEvent` lifecycle — run start, per-backend attempt
+start and end, normalized agent events, checkpoints, retries, handoffs, run end
+— and `ui/live.ts` is one consumer of it. Nothing in the router depends on a
+view existing.
+
+On a terminal that renders as a repainting frame: the backend chain with
+per-backend state, the active backend's tool calls as they land, quota headroom
+per window, labelled cost, and the checkpoint count. Off a terminal — piping,
+CI, `launchd` routines — the same events print append-only with no escape
+sequences, because a repainting frame in a log file is unreadable. `--plain`
+forces that path.
+
+This does not contradict §10's "stay a CLI, don't grow a GUI". The live view is
+terminal output from a headless run, not a workspace: no window, no daemon, no
+state of its own, and every byte of it derives from events the router already
+emits for the manifest.
 
 ### The Backend interface
 

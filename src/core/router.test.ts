@@ -89,4 +89,55 @@ describe("router", () => {
     });
     expect(manifest.steps[0]?.backendId).toBe("cursor");
   });
+
+  it("fails over once transient retries are exhausted", async () => {
+    const cwd = tmp();
+    const claude = new FakeBackend("claude", "claude", () =>
+      result("transient", "overloaded"),
+    );
+    const cursor = new FakeBackend("cursor", "cursor-agent", () =>
+      result("success", "ok"),
+    );
+    const manifest = await route({
+      backends: [claude, cursor],
+      task: { prompt: "ping", cwd },
+      autonomy: "low",
+    });
+    expect(manifest.finalOutcome).toBe("success");
+    expect(claude.prompts).toHaveLength(3);
+    expect(cursor.prompts).toHaveLength(1);
+    expect(cursor.prompts[0]).toContain("previous backend (claude)");
+  });
+
+  it("reports no_backend rather than a task failure when nothing is installed", async () => {
+    const cwd = tmp();
+    const manifest = await route({
+      backends: [
+        new FakeBackend("claude", "claude", () => result("success"), false),
+        new FakeBackend("cursor", "cursor-agent", () => result("success"), false),
+      ],
+      task: { prompt: "ping", cwd },
+      autonomy: "low",
+    });
+    expect(manifest.finalOutcome).toBe("no_backend");
+    expect(manifest.steps).toHaveLength(0);
+  });
+
+  it("emits a lifecycle the interface can render", async () => {
+    const cwd = tmp();
+    const events: string[] = [];
+    await route({
+      backends: [
+        new FakeBackend("claude", "claude", () => result("limit_exhausted", "usage limit")),
+        new FakeBackend("cursor", "cursor-agent", () => result("success", "ok")),
+      ],
+      task: { prompt: "ping", cwd },
+      autonomy: "low",
+      onProgress: (e) => events.push(e.kind),
+    });
+    expect(events[0]).toBe("run_start");
+    expect(events).toContain("attempt_start");
+    expect(events).toContain("handoff");
+    expect(events.at(-1)).toBe("run_end");
+  });
 });

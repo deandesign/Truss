@@ -23,9 +23,12 @@ trusting the router with a second account's quota.
 - [x] Re-check Solo — still no automatic quota failover; worktrees are a sharing
       layer, not isolation ([report](./spikes/005-solo.md))
 
+- [x] Capture Claude's live quota telemetry (`rate_limit_event`)
+      ([report](./spikes/006-quota-telemetry.md))
+
 **Exit criterion:** limit detection can be written against captured fixtures, not
 guesses. Real 429 payloads are still opportunistic; detectors prefer structured
-fields and keep text matching quarantined.
+fields and keep text matching quarantined **and scoped to error context**.
 
 ## M1 — Inner loop (`truss run`)
 
@@ -39,9 +42,21 @@ The failover router talk and routines sit on.
 - [x] Router: ordered chain, transient retry with backoff, limit → failover
 - [x] Checkpoint-and-brief handoff (per tool call — see Spike 3)
 - [x] Run manifest + terminal report with per-backend attribution and labelled cost
+- [x] Detection reads error context only, never the whole stream
+      ([Spike 6](./spikes/006-quota-telemetry.md) — a task *about* rate limits
+      was failing over on its own success text)
+- [x] Transient retries fail over once exhausted, per ARCHITECTURE.md §5
+- [x] Live quota telemetry from Claude's `rate_limit_event`, recorded per backend
+- [x] `RouterEvent` lifecycle + live run view (`truss run`, `truss talk`),
+      append-only off a terminal
 
 **Exit criterion:** a task that exhausts Claude's quota finishes on Cursor, and
 the report says honestly which backend did what.
+
+**Still open:** a real 429 payload has never been captured, so the limit
+fixtures remain synthetic. Quota telemetry makes this much less pressing for
+Claude — `status` and `utilization` arrive on every run — but Cursor and Codex
+still have to be classified from error text alone.
 
 ## M2 — Named agents (`truss talk`)
 
@@ -92,7 +107,11 @@ Not commitments — ideas worth revisiting once M1–M5 are real.
 
 - Thin chat UI as a skin on the same daemon
 - Cloud computer so routines survive a closed laptop
-- Quota forecasting: predict exhaustion from observed burn rate, route pre-emptively
+- Quota forecasting: predict exhaustion from observed burn rate, route
+  pre-emptively. No longer speculative for Claude — `rate_limit_event` already
+  gives per-window utilization on every run
+  ([Spike 6](./spikes/006-quota-telemetry.md)); what's missing is the policy,
+  not the data. Cursor and Codex would stay blind.
 - Consensus mode: same task to N backends, diff the answers
 - Expose Truss over MCP so a lead agent can open lanes itself
 - Run cleanly as a supervised command inside Solo

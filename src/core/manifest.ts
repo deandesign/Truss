@@ -5,6 +5,7 @@ import { repoTrussDir } from "./paths.js";
 
 export interface ManifestStep {
   backendId: string;
+  attempt?: number;
   startedAt: string;
   endedAt: string;
   outcome: Outcome;
@@ -13,6 +14,13 @@ export interface ManifestStep {
   text?: string;
 }
 
+/**
+ * `no_backend` is not a backend outcome — it means the chain was empty or
+ * nothing in it was installed, which is a configuration problem rather than a
+ * task failure and should not read as one.
+ */
+export type FinalOutcome = Outcome | "no_backend";
+
 export interface RunManifest {
   id: string;
   task: string;
@@ -20,7 +28,7 @@ export interface RunManifest {
   startedAt: string;
   endedAt: string;
   steps: ManifestStep[];
-  finalOutcome: Outcome;
+  finalOutcome: FinalOutcome;
 }
 
 export function newRunId(): string {

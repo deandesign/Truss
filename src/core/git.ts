@@ -27,10 +27,17 @@ export async function isGitRepo(cwd: string): Promise<boolean> {
   }
 }
 
+/**
+ * Truss's own run bookkeeping lives in `.truss/`. Keeping it out of checkpoints
+ * and handoff diffstats means a successor agent sees the work, not our
+ * manifests.
+ */
+const EXCLUDE_TRUSS = ":(exclude).truss";
+
 export async function diffstat(cwd: string): Promise<string> {
   if (!(await isGitRepo(cwd))) return "";
   try {
-    return await git(cwd, ["diff", "--stat"]);
+    return await git(cwd, ["diff", "--stat", "--", ".", EXCLUDE_TRUSS]);
   } catch {
     return "";
   }
@@ -46,7 +53,7 @@ export async function checkpoint(
   const indexFile = join(indexDir, "index");
   try {
     const env = { GIT_INDEX_FILE: indexFile };
-    await git(cwd, ["add", "-A"], env);
+    await git(cwd, ["add", "-A", "--", ".", EXCLUDE_TRUSS], env);
     const tree = await git(cwd, ["write-tree"], env);
     let parent: string | undefined;
     try {

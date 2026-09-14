@@ -43,13 +43,41 @@ export interface NormalizedResult {
   sessionId?: string;
   durationMs: number;
   cost?: Cost;
+  quota?: QuotaSnapshot;
   exitCode: number;
   raw: unknown;
 }
 
+/** One rolling usage window as the vendor reports it. */
+export interface QuotaWindow {
+  key: string;
+  utilization: number;
+  resetsAt?: number;
+}
+
+/**
+ * Live quota telemetry. Claude Code emits a `rate_limit_event` on every run
+ * carrying current utilization per window, so headroom is observable without
+ * waiting for a 429 — see ARCHITECTURE.md §4.
+ */
+export interface QuotaSnapshot {
+  status?: string;
+  limitType?: string;
+  usingOverage?: boolean;
+  windows: QuotaWindow[];
+  at: string;
+}
+
 export type AgentEvent =
   | { kind: "assistant"; text: string }
-  | { kind: "tool"; name: string; status: "started" | "completed" }
+  | {
+      kind: "tool";
+      name: string;
+      status: "started" | "completed";
+      id?: string;
+      detail?: string;
+    }
+  | { kind: "quota"; snapshot: QuotaSnapshot }
   | { kind: "result"; raw: unknown }
   | { kind: "error"; text: string };
 

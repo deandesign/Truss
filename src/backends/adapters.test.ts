@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ClaudeBackend } from "./claude.js";
 import { CodexBackend } from "./codex.js";
 import { CursorBackend } from "./cursor.js";
+import { classify } from "./detectors.js";
 import { ingestLine } from "./parse.js";
 
 describe("adapter argv", () => {
@@ -39,24 +40,104 @@ describe("adapter argv", () => {
 
 describe("parse", () => {
   it("ingests Claude result lines", () => {
-    const event = ingestLine(
-      JSON.stringify({ type: "result", result: "ok", session_id: "abc" }),
-      "claude",
-    );
-    expect(event).toEqual({
-      kind: "result",
-      raw: { type: "result", result: "ok", session_id: "abc" },
-    });
+    expect(
+      ingestLine(
+        JSON.stringify({ type: "result", result: "ok", session_id: "abc" }),
+        "claude",
+      ),
+    ).toEqual([
+      {
+        kind: "result",
+        raw: { type: "result", result: "ok", session_id: "abc" },
+      },
+    ]);
   });
 
   it("ingests Codex agent messages", () => {
-    const event = ingestLine(
+    expect(
+      ingestLine(
+        JSON.stringify({
+          type: "item.completed",
+          item: { type: "agent_message", text: "hello" },
+        }),
+        "codex",
+      ),
+    ).toEqual([{ kind: "assistant", text: "hello" }]);
+  });
+
+  it("surfaces prose and tool calls from one assistant message", () => {
+    const events = ingestLine(
       JSON.stringify({
-        type: "item.completed",
-        item: { type: "agent_message", text: "hello" },
+        type: "assistant",
+        message: {
+          content: [
+            { type: "text", text: "Reading the parser." },
+            {
+              type: "tool_use",
+              id: "tu_1",
+              name: "Read",
+              input: { file_path: "src/parser.ts" },
+            },
+          ],
+        },
       }),
-      "codex",
+      "claude",
     );
-    expect(event).toEqual({ kind: "assistant", text: "hello" });
+    expect(events).toEqual([
+      { kind: "assistant", text: "Reading the parser." },
+      {
+        kind: "tool",
+        name: "Read",
+        status: "started",
+        id: "tu_1",
+        detail: "src/parser.ts",
+      },
+    ]);
+  });
+
+  it("reads live quota utilization out of a rate_limit_event", () => {
+    const events = ingestLine(
+      JSON.stringify({
+        type: "rate_limit_event",
+        rate_limit_info: {
+          status: "allowed",
+          rateLimitType: "five_hour",
+          isUsingOverage: false,
+          unifiedWindows: {
+            five_hour: { utilization: 0.03, resetsAt: 1789398600 },
+            seven_day: { utilization: 0.35, resetsAt: 1789603200 },
+          },
+        },
+      }),
+      "claude",
+    );
+    expect(events).toHaveLength(1);
+    const event = events[0];
+    expect(event.kind).toBe("quota");
+    if (event.kind !== "quota") throw new Error("expected quota");
+    expect(event.snapshot.status).toBe("allowed");
+    expect(event.snapshot.limitType).toBe("five_hour");
+    expect(event.snapshot.windows).toEqual([
+      { key: "five_hour", utilization: 0.03, resetsAt: 1789398600 },
+      { key: "seven_day", utilization: 0.35, resetsAt: 1789603200 },
+    ]);
+  });
+});
+
+describe("quota status classification", () => {
+  it("a non-allowed quota status is an authoritative limit signal", () => {
+    expect(
+      classify({ exitCode: 0, quotaStatus: "rejected", raw: { type: "result" } }),
+    ).toBe("limit_exhausted");
+  });
+
+  it("an allowed quota status does not disturb a success", () => {
+    expect(
+      classify({
+        exitCode: 0,
+        quotaStatus: "allowed",
+        raw: { type: "result", is_error: false, result: "ok" },
+      }),
+    ).toBe("success");
   });
 });

@@ -13,8 +13,9 @@ import {
 } from "../bots/store.js";
 import { loadConfig } from "../core/config.js";
 import { formatReport } from "../core/report.js";
-import { route } from "../core/router.js";
+import { route, type RouterEvent } from "../core/router.js";
 import { loadSkill, skillFromMessage } from "../skills/store.js";
+import { createLiveView } from "../ui/live.js";
 
 export interface TalkOpts {
   botId?: string;
@@ -23,6 +24,10 @@ export interface TalkOpts {
   cwd: string;
   extraArgs?: string[];
   backends?: Backend[];
+  /** When supplied, the caller is rendering progress and gets only the reply. */
+  onProgress?: (event: RouterEvent) => void;
+  /** Append-only output instead of the live view. */
+  plain?: boolean;
 }
 
 function resolveBackends(): Backend[] {
@@ -56,6 +61,7 @@ export async function talkOnce(opts: TalkOpts): Promise<string> {
     skill: skill ? `${skill.title}\n\n${skill.body}` : undefined,
     transcript: recentTranscript(conv),
     extraArgs: opts.extraArgs,
+    onProgress: opts.onProgress,
   });
   const last = manifest.steps.at(-1);
   appendTurn(conv, {
@@ -64,6 +70,7 @@ export async function talkOnce(opts: TalkOpts): Promise<string> {
     at: new Date().toISOString(),
     backendId: last?.backendId,
   });
+  if (opts.onProgress) return (last?.text ?? "").trim();
   return `${formatReport(manifest)}\n\n${last?.text ?? ""}`.trim();
 }
 
@@ -75,8 +82,15 @@ export async function talkRepl(opts: TalkOpts): Promise<void> {
     while (true) {
       const line = await rl.question("> ");
       if (!line.trim()) continue;
-      const text = await talkOnce({ ...opts, message: line, botId: bot.id });
-      console.log(text);
+      const view = createLiveView({ plain: opts.plain });
+      const text = await talkOnce({
+        ...opts,
+        message: line,
+        botId: bot.id,
+        onProgress: (event) => view.onProgress(event),
+      });
+      view.close();
+      if (text) console.log(`\n${text}\n`);
     }
   } catch {
     // EOF

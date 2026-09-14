@@ -19,6 +19,7 @@ import {
   uninstallRoutine,
 } from "../routines/launchd.js";
 import { listSkills, loadSkill } from "../skills/store.js";
+import { createLiveView } from "../ui/live.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../../package.json") as { version: string };
@@ -54,15 +55,25 @@ export function createProgram(): Command {
         if (!preset) continue;
         const backend = backendFromPreset(preset);
         const avail = await backend.available();
-        const limit = limits[id];
+        const state = limits[id];
         const bits = [
           id.padEnd(12),
           avail.installed ? "installed" : "missing",
           `auth=${String(avail.authed)}`,
-          limit ? `limited@${limit.at}` : "no known limit",
+          state?.at ? `limited@${state.at}` : "no known limit",
         ];
         console.log(bits.join("  "));
         if (avail.detail) console.log(`             ${avail.detail}`);
+        const windows = state?.quota?.windows ?? [];
+        if (windows.length) {
+          const headroom = windows
+            .map(
+              (w) =>
+                `${w.key.replace(/_/g, " ")} ${Math.round(w.utilization * 100)}% used`,
+            )
+            .join(", ");
+          console.log(`             quota: ${headroom}`);
+        }
       }
     });
 
@@ -71,19 +82,22 @@ export function createProgram(): Command {
     .description("Inner loop: run a task with quota failover")
     .argument("<task...>", "task prompt")
     .option("--cwd <path>", "working directory", process.cwd())
-    .action(async (task: string[], opts: { cwd: string }) => {
+    .option("--plain", "append-only output instead of the live view")
+    .action(async (task: string[], opts: { cwd: string; plain?: boolean }) => {
       initHome();
       const config = loadConfig();
       const backends = config.order
         .map((id) => config.backends.find((b) => b.id === id))
         .filter(Boolean)
         .map((p) => backendFromPreset(p!));
+      const view = createLiveView({ plain: opts.plain });
       const manifest = await route({
         backends,
         task: { prompt: task.join(" "), cwd: opts.cwd },
         autonomy: config.autonomy,
+        onProgress: (event) => view.onProgress(event),
       });
-      console.log(formatReport(manifest));
+      view.close();
       const last = manifest.steps.at(-1);
       if (last?.text) console.log(`\n${last.text}`);
       if (manifest.finalOutcome !== "success") process.exitCode = 1;
@@ -96,27 +110,42 @@ export function createProgram(): Command {
     .argument("[message...]", "message; omit to read stdin / start a REPL")
     .option("--skill <id>", "inject a skill pack")
     .option("--cwd <path>", "working directory", process.cwd())
-    .action(async (bot: string, message: string[], opts: { skill?: string; cwd: string }) => {
-      initHome();
-      if (!loadBot(bot)) {
-        const asMessage = [bot, ...message].join(" ").trim();
-        bot = DEFAULT_BOT.id;
-        message = asMessage ? asMessage.split(" ") : [];
-      }
-      const text = message.join(" ").trim();
-      if (!text && process.stdin.isTTY) {
-        await talkRepl({ botId: bot, cwd: opts.cwd, skill: opts.skill });
-        return;
-      }
-      const fromStdin = text || (await readStdin());
-      const out = await talkOnce({
-        botId: bot,
-        message: fromStdin,
-        skill: opts.skill,
-        cwd: opts.cwd,
-      });
-      console.log(out);
-    });
+    .option("--plain", "append-only output instead of the live view")
+    .action(
+      async (
+        bot: string,
+        message: string[],
+        opts: { skill?: string; cwd: string; plain?: boolean },
+      ) => {
+        initHome();
+        if (!loadBot(bot)) {
+          const asMessage = [bot, ...message].join(" ").trim();
+          bot = DEFAULT_BOT.id;
+          message = asMessage ? asMessage.split(" ") : [];
+        }
+        const text = message.join(" ").trim();
+        if (!text && process.stdin.isTTY) {
+          await talkRepl({
+            botId: bot,
+            cwd: opts.cwd,
+            skill: opts.skill,
+            plain: opts.plain,
+          });
+          return;
+        }
+        const fromStdin = text || (await readStdin());
+        const view = createLiveView({ plain: opts.plain });
+        const out = await talkOnce({
+          botId: bot,
+          message: fromStdin,
+          skill: opts.skill,
+          cwd: opts.cwd,
+          onProgress: (event) => view.onProgress(event),
+        });
+        view.close();
+        if (out) console.log(`\n${out}`);
+      },
+    );
 
   const bots = program.command("bots").description("Manage bots");
   bots.command("list").action(() => {
