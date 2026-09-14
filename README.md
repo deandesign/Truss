@@ -138,14 +138,34 @@ the bot's durable memory. Validated in
 
 A backend you don't have an account for is skipped, not fatal — `truss status`
 reports each one as `ready`, `broken`, or `missing` with the reason. You can
-also drop it from `order` in `~/.truss/config.json`.
+also drop it from the order: `truss config set order claude,cursor`.
+
+## Install
 
 ```bash
 npm install
 npm run build
-node dist/cli.js init
-node dist/cli.js status
+npm link          # puts `truss` on your PATH
 ```
+
+If `npm link` wants root — npm's global prefix is often `/usr/local` — symlink
+it into a directory you already own instead:
+
+```bash
+ln -sfn "$PWD/dist/cli.js" ~/.local/bin/truss
+```
+
+Then:
+
+```bash
+truss setup
+truss login
+truss run "what does this repo do?"
+```
+
+The symlink points at `dist/`, so after changing anything under `src/` run
+`npm run build` before the new behaviour shows up. `npm test` typechecks and
+runs the suite but emits nothing.
 
 ## License
 
