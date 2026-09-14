@@ -1,22 +1,22 @@
 # Truss — Architecture
 
-> Status: **local teammate, v1**. The bot is the product. Vendor CLIs are the
-> inner loop. This document is the contract the code is written against.
+> Status: **meta-harness, v1**. Truss connects your coding-agent CLIs. Named
+> agents, memory, and skills live in Truss; the vendor CLIs do the coding.
+> This document is the contract the code is written against.
 
 ## 1. The problem
 
-Grok Bot is a named teammate with memory, skills, routines, and a computer —
-but the model is a fixed xAI/Cursor pool with automatic failover you cannot
-control. You already pay for Claude, Cursor, Codex. When one hits a usage
-limit, the work stops, even though another account is sitting idle.
+Coding agents are sold as sessions, but they are consumed as *capacity*. You
+already pay for Claude, Cursor, Codex. When one hits a usage limit, the work
+stops, even though another account is sitting idle.
 
 Neither CLI knows the others exist. None emit a "I am out of quota, take over"
 signal. ChatGPT Plus and Claude.ai chat cannot drive a computer; only coding
 CLIs can.
 
-**Truss is a local Grok Bot whose brains are the coding-agent subscriptions
-you already pay for.** It owns identity, memory, routing, isolation, and
-accounting. The agents keep owning the actual coding.
+**Truss is a meta-harness: a thin framework above the agent CLIs that owns
+identity, routing, isolation, and accounting, while the agents keep owning the
+actual coding.**
 
 ```
 You
@@ -37,9 +37,9 @@ Two capabilities, in dependency order:
 1. **Failover** — run a task; if the primary backend is rate-limited, continue on the next one.
 2. **Fan-out** — run N agents in parallel, each in an isolated git worktree, then collect diffs.
 
-Fan-out is M6. v1 ships the teammate and the inner loop.
+Fan-out is M6. v1 ships the connecting framework and the inner loop.
 
-See [§10](#10-prior-art) for Solo, Grok Bot, and where Truss differs.
+See [§10](#10-prior-art) for Solo and where Truss differs.
 
 ## 2. Why this is tractable: the envelopes already match
 
@@ -105,9 +105,9 @@ shared core for Claude and Cursor. Everything else is an optional capability.
 - **Claude `--fallback-model` is model failover inside one vendor.** It does
   nothing for account quota. Don't confuse the two.
 
-## 3. Outer loop: bots, memory, skills, routines
+## 3. Outer loop: named agents, memory, skills, routines
 
-Grok Bot's product shape, stored on disk, not in a vendor chat.
+Identity lives on disk in Truss, not in a vendor chat.
 
 ```
 ~/.truss/
@@ -134,12 +134,12 @@ Skills are markdown instruction packs. No screen-recording "teach a task" in
 v1. The same skill text is what every backend sees.
 
 Routines are `launchd` LaunchAgents that call `truss talk`. They only fire
-while this Mac is awake. Grok Bot's "laptop closed" behavior waits on a later
-cloud VM.
+while this Mac is awake. Work that should continue with the laptop closed waits
+on a later cloud VM.
 
-Autonomy defaults **low**. A teammate on your Mac is more dangerous than a
-one-shot `truss run`. Truss never quietly upgrades permissions to make a
-failover succeed.
+Autonomy defaults **low**. A framework that can spawn shell on your Mac is more
+dangerous than a one-shot `truss run`. Truss never quietly upgrades permissions
+to make a failover succeed.
 
 ## 4. The hard part: failover is not resumable across vendors
 
@@ -277,11 +277,12 @@ truss routines list|install|uninstall|run
 
 ## 10. Prior art
 
-### Grok Bot
+### Hosted agent products
 
-Named teammate, memory, skills, routines, cloud computer, automatic model
-failover inside a **fixed xAI/Cursor pool**. Truss copies the teammate shape
-and replaces the pool with your CLIs. The computer is this Mac, not a VM.
+Some hosted coding-agent products give you a named agent, memory, skills, and a
+cloud computer — and fail over inside **their** model pool. Truss is the other
+shape: a local framework that connects **your** CLIs. The computer is this Mac,
+not a vendor VM.
 
 ### Solo
 
@@ -293,6 +294,6 @@ ends (write the scratchpad, launch a different tool). It does not
 automatically detect a 429 and continue the same task on the next vendor.
 That remains Truss's wedge. See [Spike 5](spikes/005-solo.md).
 
-Positioning: Solo is a visible workspace; Truss is a teammate that makes
-capacity fungible. Complementary. Talk stays CLI-first rather than growing a
-UI of its own.
+Positioning: Solo is a visible workspace; Truss is a meta-harness that makes
+capacity across CLIs fungible. Complementary. Talk stays CLI-first rather than
+growing a UI of its own.

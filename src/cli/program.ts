@@ -31,7 +31,7 @@ export function createProgram(): Command {
   const program = new Command();
   program
     .name("truss")
-    .description("A local Grok Bot across the coding agents you already pay for.")
+    .description("A meta-harness that connects the coding agents you already pay for.")
     .version(version);
 
   program

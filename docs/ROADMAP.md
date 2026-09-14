@@ -1,8 +1,8 @@
 # Truss — Roadmap
 
 Milestones are ordered so each one is independently useful. The product is a
-local persistent teammate; `truss run` is the inner loop that talk and routines
-call.
+meta-harness that connects coding-agent CLIs; `truss run` is the inner loop
+that talk and routines call.
 
 ## M0 — Spikes (no product code)
 
@@ -43,7 +43,7 @@ The failover router talk and routines sit on.
 **Exit criterion:** a task that exhausts Claude's quota finishes on Cursor, and
 the report says honestly which backend did what.
 
-## M2 — Teammate (`truss talk`)
+## M2 — Named agents (`truss talk`)
 
 - [x] Bot identity (name, title, role) on disk under `~/.truss/bots/`
 - [x] Durable per-bot memory (scratchpad)

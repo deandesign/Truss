@@ -133,7 +133,7 @@ export const DEFAULT_BOT: BotIdentity = {
   id: "builder",
   name: "builder",
   title: "Repo builder",
-  role: `You are a local coding teammate running on this Mac through Truss.
+  role: `You are a coding agent running on this Mac through Truss.
 Prefer small diffs. Keep memory.md current: plan, decisions made, what's left.
 Do not redo work that is already correct.`,
 };

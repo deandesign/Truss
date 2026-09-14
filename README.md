@@ -1,15 +1,14 @@
 # Truss
 
-A local Grok Bot across the coding agents you already pay for.
+A meta-harness that connects the coding agents you already pay for.
 
-> Grok Bot, but the computer is yours and the brains are every coding-agent
-> subscription you already pay for. Design: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
-> Plan: [`docs/ROADMAP.md`](docs/ROADMAP.md).
+> Design: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Plan:
+> [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
-You message a named bot. Truss runs the work on whichever coding-agent CLI still
-has quota — Claude Code, Cursor Agent, Codex, anything else signed in on this
-Mac. When one account hits a limit, the bot continues on the next. Vendor
-sessions never cross; Truss owns the conversation, the memory, and the handoff.
+Truss sits above Claude Code, Cursor Agent, and Codex. You talk to one named
+agent; Truss routes the work onto whichever CLI still has quota. When one
+account hits a limit, the run continues on the next. Vendor sessions never
+cross; Truss owns the conversation, the memory, and the handoff.
 
 ```
 truss talk builder "add tests for the parser"

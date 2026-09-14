@@ -26,10 +26,10 @@ handoff / orchestration docs.
 
 Automatic quota failover — classify the inner CLI's result, checkpoint, brief
 the next backend, keep going — is still not Solo. Cost accounting is still
-unmentioned. Truss stays a teammate that makes capacity fungible, not a Solo
+unmentioned. Truss stays a meta-harness that makes capacity fungible, not a Solo
 plugin… unless Solo later ships that classifier.
 
 ## Positioning
 
-Unchanged: Solo is a visible workspace; Truss is a local Grok Bot across your
-CLIs. `truss run` can still be a command Solo supervises.
+Solo is a visible workspace; Truss is a framework that connects your CLIs.
+`truss run` can still be a command Solo supervises.
