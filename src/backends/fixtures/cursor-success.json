@@ -1,0 +1,10 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "result": "pong",
+  "session_id": "cursor-docs-shape",
+  "duration_ms": 1234,
+  "duration_api_ms": 1234,
+  "_source": "cursor-agent documented success shape"
+}

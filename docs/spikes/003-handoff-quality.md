@@ -90,7 +90,7 @@ Honest bounds on how far this generalizes:
 
 ## Consequences for the design
 
-- [ARCHITECTURE.md §3](../ARCHITECTURE.md#3-the-hard-part-failover-is-not-resumable-across-vendors)
+- [ARCHITECTURE.md §4](../ARCHITECTURE.md#4-the-hard-part-failover-is-not-resumable-across-vendors)
   keeps checkpoint-and-brief; the open continue-vs-restart question is closed as *continue*.
 - No parse/validity gate before handoff — finding 3 shows the successor handles corruption.
 - Checkpoint per tool call rather than once at failover.

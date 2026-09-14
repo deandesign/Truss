@@ -1,0 +1,11 @@
+{
+  "type": "result",
+  "subtype": "error",
+  "is_error": true,
+  "result": "You've hit your usage limit",
+  "session_id": "synthetic",
+  "duration_ms": 800,
+  "api_error_status": 429,
+  "terminal_reason": "rate_limit",
+  "_source": "synthetic — replace with a captured 429"
+}

@@ -1,0 +1,26 @@
+{
+  "name": "truss",
+  "version": "0.1.0",
+  "description": "A local Grok Bot across the coding agents you already pay for.",
+  "type": "module",
+  "bin": {
+    "truss": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "prepare": "tsc"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^14.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

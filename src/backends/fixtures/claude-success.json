@@ -1,0 +1,15 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "result": "pong",
+  "session_id": "9b79014e-f1d4-469d-ac5c-50b6432c31d7",
+  "num_turns": 1,
+  "duration_ms": 1512,
+  "duration_api_ms": 2513,
+  "total_cost_usd": 0.098593,
+  "api_error_status": null,
+  "terminal_reason": "completed",
+  "stop_reason": "end_turn",
+  "_source": "captured 2026-09-14 claude 2.1.270"
+}

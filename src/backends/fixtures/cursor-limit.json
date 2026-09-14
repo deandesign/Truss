@@ -1,0 +1,9 @@
+{
+  "type": "result",
+  "subtype": "error",
+  "is_error": true,
+  "result": "rate limit exceeded",
+  "session_id": "synthetic",
+  "duration_ms": 400,
+  "_source": "synthetic — Cursor error envelope is undocumented"
+}

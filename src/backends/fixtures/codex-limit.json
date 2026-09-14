@@ -1,0 +1,5 @@
+{
+  "type": "error",
+  "error": { "message": "rate limit exceeded", "code": "rate_limit" },
+  "_source": "synthetic Codex JSONL error"
+}
