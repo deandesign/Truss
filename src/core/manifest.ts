@@ -1,6 +1,7 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Cost, Outcome } from "../backends/types.js";
+import { writeJsonAtomic } from "./atomic.js";
 import { repoTrussDir } from "./paths.js";
 
 export interface ManifestStep {
@@ -39,6 +40,6 @@ export function saveManifest(manifest: RunManifest, cwd = manifest.cwd): string 
   const dir = join(repoTrussDir(cwd), "runs");
   mkdirSync(dir, { recursive: true });
   const path = join(dir, `${manifest.id}.json`);
-  writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`);
+  writeJsonAtomic(path, manifest);
   return path;
 }

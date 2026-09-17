@@ -39,7 +39,7 @@ export class ClaudeBackend implements Backend {
   }
 
   argv(task: Task, opts: RunOpts): string[] {
-    return [
+    const args = [
       "-p",
       "--output-format",
       "stream-json",
@@ -48,8 +48,16 @@ export class ClaudeBackend implements Backend {
       permissionMode(opts.autonomy),
       ...this.defaultArgs,
       ...(opts.extraArgs ?? []),
-      task.prompt,
     ];
+    if (
+      typeof opts.maxBudgetUsd === "number" &&
+      Number.isFinite(opts.maxBudgetUsd) &&
+      opts.maxBudgetUsd > 0
+    ) {
+      args.push("--max-budget-usd", String(opts.maxBudgetUsd));
+    }
+    args.push(task.prompt);
+    return args;
   }
 
   run(task: Task, opts: RunOpts): AgentRun {

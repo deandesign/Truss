@@ -1,0 +1,2 @@
+{"type":"thread.started","thread_id":"thread_transient"}
+{"type":"error","error":{"message":"service unavailable","code":"503"}}

@@ -1,0 +1,2 @@
+{"type":"thread.started","thread_id":"thread_auth"}
+{"type":"error","error":{"message":"not authenticated","code":"unauthorized"}}

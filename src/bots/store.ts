@@ -1,11 +1,12 @@
 import {
   mkdirSync,
   readFileSync,
-  writeFileSync,
   existsSync,
   readdirSync,
 } from "node:fs";
 import { join } from "node:path";
+import { writeAtomic, writeJsonAtomic } from "../core/atomic.js";
+import { assertSafeId } from "../core/ids.js";
 import { botsDir } from "../core/paths.js";
 
 export interface BotIdentity {
@@ -16,7 +17,7 @@ export interface BotIdentity {
 }
 
 export function botPath(id: string): string {
-  return join(botsDir(), id);
+  return join(botsDir(), assertSafeId("bot", id));
 }
 
 export function parseIdentity(id: string, markdown: string): BotIdentity {
@@ -59,13 +60,10 @@ export function loadBot(id: string): BotIdentity | undefined {
 export function saveBot(bot: BotIdentity): void {
   const dir = botPath(bot.id);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "identity.md"), formatIdentity(bot));
+  writeAtomic(join(dir, "identity.md"), formatIdentity(bot));
   const memory = join(dir, "memory.md");
   if (!existsSync(memory)) {
-    writeFileSync(
-      memory,
-      "# Memory\n\nPlan, decisions made, what's left.\n",
-    );
+    writeAtomic(memory, "# Memory\n\nPlan, decisions made, what's left.\n");
   }
   mkdirSync(join(dir, "conversations"), { recursive: true });
 }
@@ -79,7 +77,7 @@ export function loadMemory(id: string): string {
 export function saveMemory(id: string, body: string): void {
   const dir = botPath(id);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "memory.md"), body);
+  writeAtomic(join(dir, "memory.md"), body);
 }
 
 export interface Turn {
@@ -101,6 +99,7 @@ export function conversationPath(botId: string, convId: string): string {
 }
 
 export function newConversation(botId: string): Conversation {
+  assertSafeId("bot", botId);
   const conv: Conversation = {
     id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     botId,
@@ -108,18 +107,41 @@ export function newConversation(botId: string): Conversation {
     turns: [],
   };
   mkdirSync(join(botPath(botId), "conversations"), { recursive: true });
-  writeFileSync(conversationPath(botId, conv.id), `${JSON.stringify(conv, null, 2)}\n`);
+  writeJsonAtomic(conversationPath(botId, conv.id), conv);
   return conv;
 }
 
 export function loadConversation(botId: string, convId: string): Conversation {
-  return JSON.parse(readFileSync(conversationPath(botId, convId), "utf8")) as Conversation;
+  assertSafeId("bot", botId);
+  assertSafeId("conversation", convId);
+  const path = conversationPath(botId, convId);
+  if (!existsSync(path)) {
+    throw new Error(`no conversation ${convId} for bot ${botId}`);
+  }
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as Conversation;
+  } catch (err) {
+    throw new Error(
+      `corrupt conversation ${convId}: ${err instanceof Error ? err.message : String(err)} — delete ${path} or restore from backup`,
+    );
+  }
 }
 
 export function appendTurn(conv: Conversation, turn: Turn): Conversation {
   conv.turns.push(turn);
-  writeFileSync(conversationPath(conv.botId, conv.id), `${JSON.stringify(conv, null, 2)}\n`);
+  writeJsonAtomic(conversationPath(conv.botId, conv.id), conv);
   return conv;
+}
+
+export function latestConversation(botId: string): Conversation | undefined {
+  const dir = join(botPath(botId), "conversations");
+  if (!existsSync(dir)) return undefined;
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith(".json"))
+    .sort();
+  const last = files.at(-1);
+  if (!last) return undefined;
+  return loadConversation(botId, last.replace(/\.json$/, ""));
 }
 
 export function recentTranscript(conv: Conversation, maxTurns = 8): string {

@@ -139,11 +139,19 @@ export function createProgram(): Command {
     .option("--skill <id>", "inject a skill pack")
     .option("--cwd <path>", "working directory", process.cwd())
     .option("--plain", "append-only output instead of the live view")
+    .option("--continue", "continue the most recent conversation for this bot")
+    .option("--conversation <id>", "continue an explicit conversation id")
     .action(
       async (
         bot: string,
         message: string[],
-        opts: { skill?: string; cwd: string; plain?: boolean },
+        opts: {
+          skill?: string;
+          cwd: string;
+          plain?: boolean;
+          continue?: boolean;
+          conversation?: string;
+        },
       ) => {
         initHome();
         if (!loadBot(bot)) {
@@ -163,15 +171,18 @@ export function createProgram(): Command {
         }
         const fromStdin = text || (await readStdin());
         const view = createLiveView({ plain: opts.plain });
-        const out = await talkOnce({
+        const result = await talkOnce({
           botId: bot,
           message: fromStdin,
           skill: opts.skill,
           cwd: opts.cwd,
+          continue: opts.continue,
+          conversationId: opts.conversation,
           onProgress: (event) => view.onProgress(event),
         });
         view.close();
-        if (out) console.log(`\n${out}`);
+        if (result.text) console.log(`\n${result.text}`);
+        if (result.manifest.finalOutcome !== "success") process.exitCode = 1;
       },
     );
 
@@ -252,15 +263,27 @@ export function createProgram(): Command {
         opts: { bot: string; prompt: string; skill?: string; cron: string; cwd: string },
       ) => {
         initHome();
-        const when = parseCron(opts.cron);
-        saveRoutine({
-          id,
-          bot: opts.bot,
-          prompt: opts.prompt,
-          skill: opts.skill,
-          cwd: opts.cwd,
-          ...when,
-        });
+        try {
+          const when = parseCron(opts.cron);
+          if (!loadBot(opts.bot)) {
+            throw new Error(`unknown bot ${opts.bot} — create it with truss bots create`);
+          }
+          if (opts.skill && !loadSkill(opts.skill)) {
+            throw new Error(`unknown skill ${opts.skill}`);
+          }
+          saveRoutine({
+            id,
+            bot: opts.bot,
+            prompt: opts.prompt,
+            skill: opts.skill,
+            cwd: opts.cwd,
+            ...when,
+          });
+        } catch (err) {
+          console.error(err instanceof Error ? err.message : String(err));
+          process.exitCode = 1;
+          return;
+        }
         console.log(`saved routine ${id} (not installed — run truss routines install ${id})`);
       },
     );
@@ -298,13 +321,14 @@ export function createProgram(): Command {
         process.exitCode = 1;
         return;
       }
-      const out = await talkOnce({
+      const result = await talkOnce({
         botId: routine.bot,
         message: routine.prompt,
         skill: routine.skill,
         cwd: routine.cwd,
       });
-      console.log(out);
+      console.log(result.text);
+      if (result.manifest.finalOutcome !== "success") process.exitCode = 1;
     });
 
   return program;

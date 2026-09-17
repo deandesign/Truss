@@ -8,6 +8,7 @@ import type {
   RunOpts,
   Task,
 } from "../backends/types.js";
+import type { Budgets } from "./config.js";
 import { buildBrief } from "./brief.js";
 import { checkpoint, diffstat } from "./git.js";
 import { recordLimit, recordQuota } from "./limits.js";
@@ -53,6 +54,7 @@ export interface RouteOpts {
   backends: Backend[];
   task: Task;
   autonomy: RunOpts["autonomy"];
+  budgets?: Budgets;
   identity?: string;
   memory?: string;
   skill?: string;
@@ -71,6 +73,9 @@ export async function route(opts: RouteOpts): Promise<RunManifest> {
   const startedAt = new Date().toISOString();
   const steps: ManifestStep[] = [];
   const emit = (event: RouterEvent) => opts.onProgress?.(event);
+  const budgets = opts.budgets ?? {};
+  const runStarted = Date.now();
+  let toolTurns = 0;
 
   let seq = 0;
   let handoffFrom: string | undefined;
@@ -101,6 +106,22 @@ export async function route(opts: RouteOpts): Promise<RunManifest> {
   });
 
   for (let i = 0; i < opts.backends.length; i++) {
+    if (
+      typeof budgets.wallClockMs === "number" &&
+      Date.now() - runStarted >= budgets.wallClockMs
+    ) {
+      finalOutcome = "budget_exhausted";
+      steps.push({
+        backendId: "budget",
+        startedAt: new Date().toISOString(),
+        endedAt: new Date().toISOString(),
+        outcome: "budget_exhausted",
+        durationMs: Date.now() - runStarted,
+        text: `wall-clock budget of ${budgets.wallClockMs}ms exhausted`,
+      });
+      return finish();
+    }
+
     const backend = opts.backends[i];
     const availability = await backend.available();
     if (!availability.usable) {
@@ -116,6 +137,23 @@ export async function route(opts: RouteOpts): Promise<RunManifest> {
     let advance = false;
 
     while (!advance) {
+      const remainingMs =
+        typeof budgets.wallClockMs === "number"
+          ? budgets.wallClockMs - (Date.now() - runStarted)
+          : undefined;
+      if (typeof remainingMs === "number" && remainingMs <= 0) {
+        finalOutcome = "budget_exhausted";
+        steps.push({
+          backendId: backend.id,
+          startedAt: new Date().toISOString(),
+          endedAt: new Date().toISOString(),
+          outcome: "budget_exhausted",
+          durationMs: Date.now() - runStarted,
+          text: `wall-clock budget of ${budgets.wallClockMs}ms exhausted`,
+        });
+        return finish();
+      }
+
       const prompt = buildBrief({
         task: opts.task.prompt,
         identity: opts.identity,
@@ -135,21 +173,34 @@ export async function route(opts: RouteOpts): Promise<RunManifest> {
       const started = new Date();
       ran = true;
 
-      // Checkpoints are serialised: a tool-completed event can arrive while a
-      // previous checkpoint is still committing, and two concurrent
-      // commit-trees on one repo race on the ref.
+      const controller = new AbortController();
+      let wallTimer: ReturnType<typeof setTimeout> | undefined;
+      if (typeof remainingMs === "number") {
+        wallTimer = setTimeout(() => controller.abort(), remainingMs);
+      }
+
       let pending: Promise<void> = Promise.resolve();
       const run = backend.run(
         { prompt, cwd: opts.task.cwd },
         {
           autonomy: opts.autonomy,
           extraArgs: opts.extraArgs,
+          abortSignal: controller.signal,
+          maxBudgetUsd: budgets.maxBudgetUsd,
           onEvent: (event) => {
             opts.onEvent?.(event);
             emit({ kind: "agent", backendId: backend.id, event });
           },
           onTool: (event): Promise<void> | void => {
             if (event.status !== "completed") return;
+            toolTurns += 1;
+            if (
+              typeof budgets.maxTurns === "number" &&
+              toolTurns > budgets.maxTurns
+            ) {
+              controller.abort();
+              return;
+            }
             pending = pending.then(async () => {
               const next = ++seq;
               const commit = await checkpoint(opts.task.cwd, id, next);
@@ -165,9 +216,54 @@ export async function route(opts: RouteOpts): Promise<RunManifest> {
         },
       );
 
-      const result: NormalizedResult = await run.result;
+      let result: NormalizedResult;
+      try {
+        result = await run.result;
+      } finally {
+        if (wallTimer) clearTimeout(wallTimer);
+      }
       await pending;
       if (result.quota) recordQuota(backend.id, result.quota);
+
+      if (
+        typeof budgets.maxTurns === "number" &&
+        toolTurns > budgets.maxTurns
+      ) {
+        result = {
+          ...result,
+          ok: false,
+          outcome: "budget_exhausted",
+          text:
+            result.text ||
+            `turn budget of ${budgets.maxTurns} tool completions exhausted`,
+        };
+      } else if (
+        controller.signal.aborted &&
+        typeof budgets.wallClockMs === "number" &&
+        Date.now() - runStarted >= budgets.wallClockMs
+      ) {
+        result = {
+          ...result,
+          ok: false,
+          outcome: "budget_exhausted",
+          text:
+            result.text ||
+            `wall-clock budget of ${budgets.wallClockMs}ms exhausted`,
+        };
+      } else if (
+        typeof budgets.maxBudgetUsd === "number" &&
+        typeof result.cost?.usd === "number" &&
+        result.cost.usd >= budgets.maxBudgetUsd
+      ) {
+        result = {
+          ...result,
+          ok: false,
+          outcome: "budget_exhausted",
+          text:
+            result.text ||
+            `dollar budget of $${budgets.maxBudgetUsd} exhausted (known spend $${result.cost.usd})`,
+        };
+      }
 
       const step: ManifestStep = {
         backendId: backend.id,
@@ -193,6 +289,11 @@ export async function route(opts: RouteOpts): Promise<RunManifest> {
 
       const nextBackend = opts.backends[i + 1]?.id;
 
+      // Budget hits stop the chain — spending another provider would defeat the cap.
+      if (result.outcome === "budget_exhausted") {
+        return finish();
+      }
+
       if (result.outcome === "transient") {
         if (attempt < TRANSIENT_BACKOFF_MS.length) {
           const afterMs = TRANSIENT_BACKOFF_MS[attempt];
@@ -201,9 +302,6 @@ export async function route(opts: RouteOpts): Promise<RunManifest> {
           attempt += 1;
           continue;
         }
-        // Retries exhausted. ARCHITECTURE.md §4: retry with backoff, *then*
-        // fail over — a backend that is still 5xx-ing is as unusable as one out
-        // of quota.
         emit({
           kind: "handoff",
           from: backend.id,
@@ -216,8 +314,6 @@ export async function route(opts: RouteOpts): Promise<RunManifest> {
         continue;
       }
 
-      // The backend could not run — no account, or a broken install. The task
-      // never started, so move on instead of reporting the task as failed.
       if (result.outcome === "unusable") {
         emit({
           kind: "handoff",
@@ -246,7 +342,6 @@ export async function route(opts: RouteOpts): Promise<RunManifest> {
         continue;
       }
 
-      // success, task_failure, cancelled — the chain stops here either way.
       return finish();
     }
   }

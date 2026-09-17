@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FakeBackend, result } from "../backends/fake.js";
 import { talkOnce } from "../bots/talk.js";
 import { initHome } from "../core/init.js";
-import { loadBot, loadMemory, saveMemory } from "./store.js";
+import { loadBot, loadMemory, saveBot, saveMemory } from "./store.js";
 import { listSkills, loadSkill, skillFromMessage } from "../skills/store.js";
 
 const dirs: string[] = [];
@@ -43,8 +43,42 @@ describe("bots", () => {
       cwd: process.env.TRUSS_HOME!,
       backends: [backend],
     });
-    expect(out).toContain("ok");
+    expect(out.text).toContain("ok");
+    expect(out.manifest.finalOutcome).toBe("success");
     expect(backend.prompts).toHaveLength(1);
+  });
+
+  it("rejects path-traversal bot ids", () => {
+    expect(() =>
+      saveBot({
+        id: "../evil",
+        name: "evil",
+        title: "evil",
+        role: "no",
+      }),
+    ).toThrow(/bot id/);
+  });
+
+  it("reuses a conversation across turns", async () => {
+    const backend = new FakeBackend("claude", "claude", (prompt) => {
+      return result("success", `heard:${prompt.includes("first") ? "1" : "2"}`);
+    });
+    const first = await talkOnce({
+      botId: "builder",
+      message: "first",
+      cwd: process.env.TRUSS_HOME!,
+      backends: [backend],
+    });
+    const second = await talkOnce({
+      botId: "builder",
+      message: "second",
+      cwd: process.env.TRUSS_HOME!,
+      backends: [backend],
+      conversation: first.conversation,
+    });
+    expect(second.conversation.id).toBe(first.conversation.id);
+    expect(second.conversation.turns.length).toBe(4);
+    expect(backend.prompts[1]).toContain("user: first");
   });
 });
 

@@ -18,6 +18,12 @@ const CAPABILITIES: Capabilities = {
   requiresTrust: false,
 };
 
+/**
+ * Map Truss autonomy onto Codex sandbox + approval.
+ * Official guidance: read-only for unattended low trust; workspace-write for
+ * ordinary local work; never quietly upgrade low → write.
+ * @see https://learn.chatgpt.com/docs/agent-approvals-security
+ */
 function autonomyFlags(autonomy: Autonomy): string[] {
   if (autonomy === "high") {
     return ["--dangerously-bypass-approvals-and-sandbox"];
@@ -25,7 +31,7 @@ function autonomyFlags(autonomy: Autonomy): string[] {
   if (autonomy === "medium") {
     return ["--sandbox", "workspace-write", "--ask-for-approval", "on-request"];
   }
-  return ["--sandbox", "workspace-write", "--ask-for-approval", "on-request"];
+  return ["--sandbox", "read-only", "--ask-for-approval", "never"];
 }
 
 export class CodexBackend implements Backend {
