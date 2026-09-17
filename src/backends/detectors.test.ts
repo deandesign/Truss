@@ -234,3 +234,70 @@ describe("a backend that cannot run is not a task failure", () => {
     ).toBe("task_failure");
   });
 });
+
+describe("an expired session is not a task failure", () => {
+  const raw = load("claude-auth-expired.json");
+
+  it("classifies a real captured OAuth-expiry envelope as unusable", () => {
+    // Captured from claude 2.1.270 in a shell whose session had lapsed. This
+    // read as task_failure, which halts the chain — so a signed-in Cursor was
+    // never tried. The exact case Truss exists for, failing.
+    expect(classify({ exitCode: 1, raw })).toBe("unusable");
+  });
+
+  it("cannot lean on subtype or api_error_status for that envelope", () => {
+    // Both are useless here: subtype says "success" while is_error is true,
+    // and there is no HTTP status at all.
+    const rec = raw as Record<string, unknown>;
+    expect(rec.is_error).toBe(true);
+    expect(rec.subtype).toBe("success");
+    expect(rec.api_error_status).toBeNull();
+    expect(rec.terminal_reason).toBe("api_error");
+  });
+
+  it("reads other session-expiry wordings the same way", () => {
+    for (const message of [
+      "Failed to authenticate: OAuth session expired and could not be refreshed",
+      "Authentication failed, please log in again",
+      "Your credentials have expired",
+      "access token is invalid",
+      "Session expired — re-authenticate to continue",
+    ]) {
+      expect(
+        classify({
+          exitCode: 1,
+          raw: { type: "result", is_error: true, result: message },
+        }),
+      ).toBe("unusable");
+    }
+  });
+
+  it("retries an unrecognised api_error rather than halting the chain", () => {
+    expect(
+      classify({
+        exitCode: 1,
+        raw: {
+          type: "result",
+          is_error: true,
+          terminal_reason: "api_error",
+          result: "something new and undocumented went wrong upstream",
+        },
+      }),
+    ).toBe("transient");
+  });
+
+  it("still calls a genuine task failure a task failure", () => {
+    // No terminal_reason: api_error, and nothing auth-shaped.
+    expect(
+      classify({
+        exitCode: 1,
+        raw: {
+          type: "result",
+          is_error: true,
+          terminal_reason: "completed",
+          result: "3 tests failed in src/parser.test.ts",
+        },
+      }),
+    ).toBe("task_failure");
+  });
+});

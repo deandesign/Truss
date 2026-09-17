@@ -32,20 +32,30 @@ const LIMIT_PATTERNS = [
  * rather than stop and report the task as broken.
  */
 const UNUSABLE_PATTERNS = [
+  // Not installed / not runnable
   /\benoent\b/i,
   /command not found/i,
   /no such file or directory/i,
+  // Never signed in
   /not logged in/i,
   /please (?:run .*)?log ?in/i,
   /please sign in/i,
   /run `?[a-z-]+ login`?/i,
-  /unauthori[sz]ed/i,
-  /authentication (?:failed|required)/i,
-  /(?:invalid|missing|no) api key/i,
-  /\b401\b/,
-  /\b403\b/,
   /not authenticated/i,
   /no account/i,
+  /(?:invalid|missing|no) api key/i,
+  /unauthori[sz]ed/i,
+  /\b401\b/,
+  /\b403\b/,
+  // Signed in once, but the session is no longer good. Captured verbatim from
+  // claude 2.1.270: "Failed to authenticate: OAuth session expired and could
+  // not be refreshed" — which matched nothing above, so it read as a task
+  // failure and halted the chain while a signed-in backend sat idle.
+  /failed to (?:authenticate|authori[sz]e|refresh)/i,
+  /authenticat\w*[^\n]{0,24}(?:failed|required|expired|error)/i,
+  /(?:oauth|session|token|credentials?)[^\n]{0,40}(?:expired|invalid|revoked)/i,
+  /could not be refreshed/i,
+  /re-?authenticate/i,
 ];
 
 const TRANSIENT_PATTERNS = [
@@ -114,6 +124,19 @@ function hasStructuredEnvelope(raw: unknown): boolean {
     "subtype" in obj ||
     "error" in obj
   );
+}
+
+/**
+ * The vendor says the failure happened in the API layer rather than in the
+ * work. Captured auth-failure envelopes carry `terminal_reason: "api_error"`
+ * with `subtype: "success"` and a null `api_error_status`, so this is the only
+ * structured signal available — and an API error is by definition not a task
+ * failure, so it must not halt the chain.
+ */
+function isApiLevelFailure(raw: unknown): boolean {
+  const obj = rec(raw);
+  if (!obj) return false;
+  return /^api_error$/i.test(str(obj.terminal_reason));
 }
 
 function isErrorEnvelope(raw: unknown): boolean {
@@ -185,6 +208,10 @@ export function classify(input: ClassifyInput): Outcome {
   if (UNUSABLE_PATTERNS.some((p) => p.test(text))) return "unusable";
   if (LIMIT_PATTERNS.some((p) => p.test(text))) return "limit_exhausted";
   if (TRANSIENT_PATTERNS.some((p) => p.test(text))) return "transient";
+
+  // An unrecognised API-level error is still not the task's fault. Retry, then
+  // fail over — never stop the chain on it.
+  if (isApiLevelFailure(input.raw)) return "transient";
 
   return "task_failure";
 }
