@@ -3,9 +3,10 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
-  writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { writeAtomic } from "../core/atomic.js";
+import { assertSafeId } from "../core/ids.js";
 import { skillsDir } from "../core/paths.js";
 
 export interface Skill {
@@ -39,15 +40,17 @@ export function listSkills(): Skill[] {
 }
 
 export function loadSkill(id: string): Skill | undefined {
-  const file = join(skillsDir(), `${id}.md`);
+  const safe = assertSafeId("skill", id);
+  const file = join(skillsDir(), `${safe}.md`);
   if (!existsSync(file)) return undefined;
-  return parseSkill(id, readFileSync(file, "utf8"));
+  return parseSkill(safe, readFileSync(file, "utf8"));
 }
 
 export function saveSkill(skill: Skill): void {
+  const id = assertSafeId("skill", skill.id);
   mkdirSync(skillsDir(), { recursive: true });
-  writeFileSync(
-    join(skillsDir(), `${skill.id}.md`),
+  writeAtomic(
+    join(skillsDir(), `${id}.md`),
     `---\ntitle: ${skill.title}\n---\n\n${skill.body.trim()}\n`,
   );
 }
@@ -55,8 +58,12 @@ export function saveSkill(skill: Skill): void {
 export function skillFromMessage(message: string): { skill?: Skill; rest: string } {
   const match = message.match(/^\/([a-z0-9-]+)\s*([\s\S]*)$/i);
   if (!match) return { rest: message };
-  const skill = loadSkill(match[1]);
-  return { skill, rest: match[2].trim() || message };
+  try {
+    const skill = loadSkill(match[1]);
+    return { skill, rest: match[2].trim() || message };
+  } catch {
+    return { rest: message };
+  }
 }
 
 export const DEFAULT_SKILLS: Skill[] = [

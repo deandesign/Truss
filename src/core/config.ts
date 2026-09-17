@@ -1,43 +1,59 @@
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
 import { DEFAULT_PRESETS } from "../backends/registry.js";
 import type { Autonomy, BackendPreset } from "../backends/types.js";
+import { writeJsonAtomic } from "./atomic.js";
 import { configPath } from "./paths.js";
+
+export interface Budgets {
+  wallClockMs?: number;
+  maxTurns?: number;
+  maxBudgetUsd?: number;
+}
 
 export interface TrussConfig {
   order: string[];
   autonomy: Autonomy;
   backends: BackendPreset[];
-  budgets?: {
-    wallClockMs?: number;
-    maxTurns?: number;
-    maxBudgetUsd?: number;
-  };
+  budgets?: Budgets;
 }
 
 export const DEFAULT_CONFIG: TrussConfig = {
   order: ["claude", "cursor", "codex"],
   autonomy: "low",
   backends: DEFAULT_PRESETS,
+  budgets: {
+    wallClockMs: undefined,
+    maxTurns: undefined,
+    maxBudgetUsd: undefined,
+  },
 };
 
 export function loadConfig(): TrussConfig {
   const path = configPath();
-  if (!existsSync(path)) return { ...DEFAULT_CONFIG };
-  const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<TrussConfig>;
+  if (!existsSync(path)) return { ...DEFAULT_CONFIG, backends: [...DEFAULT_PRESETS] };
+  let parsed: Partial<TrussConfig>;
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<TrussConfig>;
+  } catch (err) {
+    throw new Error(
+      `corrupt config at ${path}: ${err instanceof Error ? err.message : String(err)} — fix or delete the file and re-run truss init`,
+    );
+  }
   return {
     ...DEFAULT_CONFIG,
     ...parsed,
     backends: parsed.backends ?? DEFAULT_CONFIG.backends,
     order: parsed.order ?? DEFAULT_CONFIG.order,
     autonomy: parsed.autonomy ?? DEFAULT_CONFIG.autonomy,
+    budgets: { ...DEFAULT_CONFIG.budgets, ...parsed.budgets },
   };
 }
 
 export function saveConfig(config: TrussConfig): void {
   const path = configPath();
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
+  writeJsonAtomic(path, config);
 }
 
 export const AUTONOMY_VALUES: Autonomy[] = ["low", "medium", "high"];

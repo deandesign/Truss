@@ -24,6 +24,23 @@ export interface SpawnSpec {
   env?: NodeJS.ProcessEnv;
 }
 
+/** Prefer terminal failure/success envelopes over lifecycle noise. */
+function preferRaw(current: unknown, next: unknown): unknown {
+  if (!current) return next;
+  const nextType =
+    next && typeof next === "object"
+      ? String((next as { type?: unknown }).type ?? "")
+      : "";
+  const curType =
+    current && typeof current === "object"
+      ? String((current as { type?: unknown }).type ?? "")
+      : "";
+  const terminal = new Set(["error", "turn.failed", "turn.completed", "result"]);
+  if (terminal.has(nextType)) return next;
+  if (terminal.has(curType) && !terminal.has(nextType)) return current;
+  return next;
+}
+
 export function spawnRun(spec: SpawnSpec, opts: RunOpts): AgentRun {
   const controller = new AbortController();
   const signal = opts.abortSignal ?? controller.signal;
@@ -73,7 +90,12 @@ export function spawnRun(spec: SpawnSpec, opts: RunOpts): AgentRun {
     }
     collected.push(resolved);
     if (resolved.kind === "assistant") assistantText += resolved.text;
-    if (resolved.kind === "result") raw = resolved.raw;
+    // Later terminal envelopes win. Never let an early lifecycle record
+    // (or a success turn) stick after an error/result that follows.
+    if (resolved.kind === "result") raw = preferRaw(raw, resolved.raw);
+    if (resolved.kind === "error" && !raw) {
+      raw = { type: "error", error: { message: resolved.text } };
+    }
     if (resolved.kind === "quota") quota = resolved.snapshot;
     opts.onEvent?.(resolved);
     if (resolved.kind === "tool") await opts.onTool?.(resolved);

@@ -13,6 +13,7 @@ type BackendState =
   | "success"
   | "task_failure"
   | "limit_exhausted"
+  | "budget_exhausted"
   | "transient"
   | "cancelled"
   | "unusable"
@@ -171,6 +172,7 @@ const MARKS: Record<BackendState, string> = {
   success: "✓",
   task_failure: "✗",
   limit_exhausted: "⚡",
+  budget_exhausted: "⏱",
   transient: "~",
   cancelled: "⊘",
   unusable: "⊘",
@@ -186,6 +188,7 @@ function tint(palette: Palette, state: BackendState): (s: string) => string {
     case "task_failure":
       return palette.red;
     case "limit_exhausted":
+    case "budget_exhausted":
       return palette.yellow;
     case "transient":
       return palette.yellow;
@@ -392,6 +395,7 @@ const OUTCOME_WORD: Record<FinalOutcome, string> = {
   success: "success",
   task_failure: "task failed",
   limit_exhausted: "out of quota",
+  budget_exhausted: "budget exhausted",
   transient: "unavailable",
   cancelled: "cancelled",
   unusable: "no usable backend",
@@ -408,7 +412,7 @@ function finalSummary(
   const colour =
     outcome === "success"
       ? palette.green
-      : outcome === "limit_exhausted"
+      : outcome === "limit_exhausted" || outcome === "budget_exhausted"
         ? palette.yellow
         : palette.red;
   const lines = [

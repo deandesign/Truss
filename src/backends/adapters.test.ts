@@ -28,13 +28,30 @@ describe("adapter argv", () => {
     expect(argv).toContain("stream-json");
   });
 
-  it("Codex uses exec --json", () => {
-    const argv = new CodexBackend("codex", "codex").argv(task, {
+  it("Codex uses exec --json with distinct autonomy tiers", () => {
+    const backend = new CodexBackend("codex", "codex");
+    const low = backend.argv(task, { autonomy: "low" });
+    expect(low[0]).toBe("exec");
+    expect(low).toContain("--json");
+    expect(low).toContain("read-only");
+    expect(low).toContain("never");
+    expect(low).not.toContain("workspace-write");
+
+    const medium = backend.argv(task, { autonomy: "medium" });
+    expect(medium).toContain("workspace-write");
+    expect(medium).toContain("on-request");
+
+    const high = backend.argv(task, { autonomy: "high" });
+    expect(high).toContain("--dangerously-bypass-approvals-and-sandbox");
+  });
+
+  it("Claude passes --max-budget-usd when requested", () => {
+    const argv = new ClaudeBackend("claude", "claude").argv(task, {
       autonomy: "low",
+      maxBudgetUsd: 1.5,
     });
-    expect(argv[0]).toBe("exec");
-    expect(argv).toContain("--json");
-    expect(argv).toContain("--ask-for-approval");
+    expect(argv).toContain("--max-budget-usd");
+    expect(argv).toContain("1.5");
   });
 });
 
@@ -120,6 +137,35 @@ describe("parse", () => {
     expect(event.snapshot.windows).toEqual([
       { key: "five_hour", utilization: 0.03, resetsAt: 1789398600 },
       { key: "seven_day", utilization: 0.35, resetsAt: 1789603200 },
+    ]);
+  });
+
+  it("does not treat thread.started as a terminal result", () => {
+    expect(
+      ingestLine(
+        JSON.stringify({ type: "thread.started", thread_id: "t1" }),
+        "codex",
+      ),
+    ).toEqual([]);
+  });
+
+  it("preserves turn.failed as a structured result envelope", () => {
+    const events = ingestLine(
+      JSON.stringify({
+        type: "turn.failed",
+        error: { message: "rate limit exceeded", code: "rate_limit" },
+      }),
+      "codex",
+    );
+    expect(events).toEqual([
+      { kind: "error", text: "rate limit exceeded" },
+      {
+        kind: "result",
+        raw: {
+          type: "turn.failed",
+          error: { message: "rate limit exceeded", code: "rate_limit" },
+        },
+      },
     ]);
   });
 });

@@ -36,8 +36,23 @@ const EXCLUDE_TRUSS = ":(exclude).truss";
 
 export async function diffstat(cwd: string): Promise<string> {
   if (!(await isGitRepo(cwd))) return "";
+  const scoped = ["--", ".", EXCLUDE_TRUSS];
   try {
-    return await git(cwd, ["diff", "--stat", "--", ".", EXCLUDE_TRUSS]);
+    const tracked = await git(cwd, ["diff", "--stat", "HEAD", ...scoped]);
+    const status = await git(cwd, [
+      "status",
+      "--porcelain",
+      "--untracked-files=all",
+      ...scoped,
+    ]);
+    const untracked = status
+      .split("\n")
+      .filter((line) => line.startsWith("??"))
+      .map((line) => line.slice(3).trim())
+      .filter(Boolean);
+    return [tracked, ...untracked.map((file) => ` ? ${file}`)]
+      .filter(Boolean)
+      .join("\n");
   } catch {
     return "";
   }

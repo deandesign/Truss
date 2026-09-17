@@ -5,7 +5,9 @@ export type Outcome =
   | "transient"
   | "cancelled"
   /** The backend itself cannot run: broken install, or no account. */
-  | "unusable";
+  | "unusable"
+  /** Wall-clock / turn / dollar budget hit — do not fail over to spend more. */
+  | "budget_exhausted";
 
 export type Autonomy = "low" | "medium" | "high";
 
@@ -96,6 +98,8 @@ export interface RunOpts {
   extraArgs?: string[];
   env?: NodeJS.ProcessEnv;
   abortSignal?: AbortSignal;
+  /** Soft dollar cap — adapters that support it pass a native flag. */
+  maxBudgetUsd?: number;
   onEvent?: (event: AgentEvent) => void;
   onTool?: (
     event: Extract<AgentEvent, { kind: "tool" }>,

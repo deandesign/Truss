@@ -53,6 +53,10 @@ The failover router talk and routines sit on.
       run is skipped rather than halting the chain
       ([Spike 7](./spikes/007-availability.md))
 - [x] Tests and `fake.ts` are typechecked (`npm test` runs `tsconfig.check.json`)
+- [x] Enforced budgets: wall-clock, turn count, and Claude `--max-budget-usd`;
+      `budget_exhausted` stops the chain (does not burn the next provider)
+- [x] Safe ids + atomic JSON writes for config / bots / routines / manifests
+- [x] CI on Node 22 (`npm test`, `npm run build`, audit)
 
 **Exit criterion:** a task that exhausts Claude's quota finishes on Cursor, and
 the report says honestly which backend did what.
@@ -68,9 +72,12 @@ still have to be classified from error text alone.
 - [x] Durable per-bot memory (scratchpad), written back after each run
 - [x] Truss-owned transcript
 - [x] `truss talk [bot]` — each turn becomes a routed run with role + memory + transcript
+- [x] Conversation continuity (one conversation per REPL; `--continue` /
+      `--conversation` for one-shot)
+- [x] Non-zero exit codes for failed `talk` and scheduled routine runs
 
 **Exit criterion:** you can message a named bot and the run uses the bot's role
-and memory, not a vendor session.
+and memory, not a vendor session. Prior turns survive across REPL lines.
 
 ## M3a — Terminal MVP
 
@@ -111,20 +118,22 @@ and gets a successful `truss run` without editing a file by hand.
 
 - [x] Codex CLI (`codex exec --json`) as the OpenAI backend
 - [x] One file in `backends/` + detector fixtures — nothing else
+- [x] `low` autonomy maps to `--sandbox read-only --ask-for-approval never`
+      (medium keeps workspace-write; high stays explicitly dangerous)
+- [x] JSONL parsing preserves `error` / `turn.failed` envelopes; `thread.started`
+      no longer masks later failures
+- [ ] **Verified single-lane failover** against an authenticated Codex install:
+      low autonomy, JSONL parsing, quota classification, successor handoff
 
-**Exit criterion:** adding Codex does not change the router. Met — the adapter
-is one file and the router is untouched.
+**Exit criterion for “M5 complete”:** a real Codex run proves low autonomy,
+JSONL parsing, quota classification, and successor handoff. Adapter presence
+alone is not enough.
 
-**Not verified against a running Codex.** The only install available exits
-`ENOENT` (its vendored native binary is missing) and there is no account to
-test with, so the argv mapping has never been exercised end to end. One known
-defect left deliberately unfixed: `autonomyFlags` in `backends/codex.ts`
-returns identical flags for `low` and `medium`, both granting
-`--sandbox workspace-write`. So "low" is not low on Codex, which contradicts
-[ARCHITECTURE.md §3](./ARCHITECTURE.md)'s "autonomy defaults low, and Truss
-never quietly upgrades permissions". Fixing it blind would mean guessing flag
-values that cannot be checked here; it is deferred to the broader
-multi-provider pass below rather than patched on faith.
+## Release gate — verified single-lane failover
+
+Ship criterion before M6: a task that exhausts one backend finishes on the next,
+with an honest report, under default-low autonomy. Manual acceptance matrix
+against authenticated Claude, Cursor, and Codex installs.
 
 ## M6 — Fan-out (`truss split`) — later
 
@@ -147,10 +156,8 @@ Not commitments — ideas worth revisiting once M1–M5 are real.
   gives per-window utilization on every run
   ([Spike 6](./spikes/006-quota-telemetry.md)); what's missing is the policy,
   not the data. Cursor and Codex would stay blind.
-- **More providers, Codex included.** Verify the Codex argv mapping against a
-  working install (and fix its `low`/`medium` autonomy collision), then add
-  Gemini / Aider. Each should stay one file in `backends/` plus detector
-  fixtures; if it isn't, the adapter boundary is wrong.
+- **More providers.** Add Gemini / Aider. Each should stay one file in
+  `backends/` plus detector fixtures; if it isn't, the adapter boundary is wrong.
 - Cache an `unusable` verdict so a CLI installed without an account costs no
   spawn per run, with a re-probe once the user might have logged in
 - Consensus mode: same task to N backends, diff the answers

@@ -163,13 +163,16 @@ function ingestClaudeCursor(obj: Record<string, unknown>): AgentEvent[] {
 function ingestCodex(obj: Record<string, unknown>): AgentEvent[] {
   const type = String(obj.type ?? "");
 
+  // Terminal failure envelopes must become `result` so spawn keeps the
+  // structured raw. Emitting only `error` left raw stuck on an earlier
+  // thread.started, and classify then reported task_failure instead of
+  // limit_exhausted.
   if (type === "error" || type === "turn.failed") {
     const error = obj.error as Record<string, unknown> | undefined;
+    const text = String(error?.message ?? obj.message ?? JSON.stringify(obj));
     return [
-      {
-        kind: "error",
-        text: String(error?.message ?? obj.message ?? JSON.stringify(obj)),
-      },
+      { kind: "error", text },
+      { kind: "result", raw: obj },
     ];
   }
 
@@ -210,7 +213,9 @@ function ingestCodex(obj: Record<string, unknown>): AgentEvent[] {
     }
   }
 
-  if (type === "turn.completed" || type === "thread.started") {
+  // Only turn.completed is a terminal success envelope. thread.started is
+  // lifecycle noise — treating it as `result` masked later failures.
+  if (type === "turn.completed") {
     return [{ kind: "result", raw: obj }];
   }
 
